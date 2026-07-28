@@ -1,31 +1,56 @@
-package uukit
+package llmkit
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type ErrorKind string
 
 const (
-	ErrorAuthentication  ErrorKind = "authentication"
-	ErrorPermission      ErrorKind = "permission"
-	ErrorRateLimited     ErrorKind = "rate_limited"
-	ErrorTimeout         ErrorKind = "timeout"
-	ErrorContextOverflow ErrorKind = "context_overflow"
-	ErrorInvalidRequest  ErrorKind = "invalid_request"
-	ErrorInvalidResponse ErrorKind = "invalid_response"
-	ErrorUnavailable     ErrorKind = "unavailable"
-	ErrorCancelled       ErrorKind = "cancelled"
-	ErrorUnknown         ErrorKind = "unknown"
+	ErrorAuthentication    ErrorKind = "authentication"
+	ErrorPermission        ErrorKind = "permission"
+	ErrorInvalidRequest    ErrorKind = "invalid_request"
+	ErrorUnsupported       ErrorKind = "unsupported_feature"
+	ErrorModelNotFound     ErrorKind = "model_not_found"
+	ErrorContextLength     ErrorKind = "context_length"
+	ErrorRateLimit         ErrorKind = "rate_limit"
+	ErrorQuotaExhausted    ErrorKind = "quota_exhausted"
+	ErrorContentBlocked    ErrorKind = "content_blocked"
+	ErrorOverloaded        ErrorKind = "overloaded"
+	ErrorTimeout           ErrorKind = "timeout"
+	ErrorCanceled          ErrorKind = "canceled"
+	ErrorTransport         ErrorKind = "transport"
+	ErrorMalformedResponse ErrorKind = "malformed_response"
+	ErrorUnknown           ErrorKind = "unknown"
 )
 
+type TransportPhase string
+
+const (
+	PhaseResolveDNS   TransportPhase = "resolve_dns"
+	PhaseConnect      TransportPhase = "connect"
+	PhaseTLS          TransportPhase = "tls"
+	PhaseWriteRequest TransportPhase = "write_request"
+	PhaseReadHeaders  TransportPhase = "read_headers"
+	PhaseReadBody     TransportPhase = "read_body"
+	PhaseDecode       TransportPhase = "decode"
+	PhaseStream       TransportPhase = "stream"
+)
+
+// ProviderError contains only host-safe diagnostics. Cause must also be safe:
+// adapters must not wrap errors containing credentials, prompts, or raw bodies.
 type ProviderError struct {
 	Provider     ProviderID
 	Model        ModelID
 	Kind         ErrorKind
+	Phase        TransportPhase
 	StatusCode   int
 	Retryable    bool
-	RetryAfterMS int64
+	RetryAfter   time.Duration
 	SafeMessage  string
 	ProviderCode string
+	RequestID    string
 	Cause        error
 }
 
@@ -33,7 +58,16 @@ func (e *ProviderError) Error() string {
 	if e == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("provider %s model %s: %s", e.Provider, e.Model, e.SafeMessage)
+	message := e.SafeMessage
+	if message == "" {
+		message = string(e.Kind)
+	}
+	return fmt.Sprintf("llmkit: provider %s model %s: %s", e.Provider, e.Model, message)
 }
 
-func (e *ProviderError) Unwrap() error { return e.Cause }
+func (e *ProviderError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}

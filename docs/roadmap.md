@@ -1,29 +1,33 @@
-# uukit Roadmap
+# llmkit Roadmap
 
 ## Phase 0：基线
 
 - [x] 初始化 Apache-2.0 Go module
-- [x] 定义 Adapter、Request、Response、Usage、StreamEvent 和 ProviderError
+- [x] 采用小 Provider/能力接口、类型化 Request/Response/Event、Usage 和 ProviderError
+- [x] 采用 request-scoped CredentialHandle、显式 Target 和转换 Adaptation 报告
 - [x] 沉淀 new-api relay/relaykit 与 TokenHub 分析
-- [ ] 建立 ADR、贡献指南、安全策略和版本兼容政策
-- [ ] 建立 CI、lint、race、coverage、dependency review 和 release workflow
-- [ ] 批准 uukit-sidecar IPC、安全、兼容和发布需求基线
+- [x] 建立贡献指南、安全策略和版本兼容政策
+- [x] 建立 CI、format、vet、race、coverage 和 dependency review
+- [x] 建立 Provider SDK 边界 ADR
+- [x] 建立 release workflow
+- [ ] 批准 llmkit-sidecar IPC、安全、兼容和发布需求基线
 
 ## Phase 1：协议与 Transport
 
-- [ ] 定义稳定的消息、内容块、工具和 Structured Output 类型
-- [ ] 实现可注入 HTTP Transport、SSE parser、超时和取消
-- [ ] 实现 OpenAI Chat/Responses 基线 Codec
-- [ ] 建立 Provider conformance test suite 和脱敏 fixtures
+- [x] 定义消息、内容块、工具和 Structured Output 基线类型
+- [x] 实现可注入 HTTP Transport、SSE parser、超时和取消
+- [x] 实现 OpenAI Chat/Responses 基线 Codec
+- [x] 建立 Provider conformance test suite 和脱敏 fixtures
 
 ## Phase 2：首批 Provider
 
+- [x] OpenAI native Chat Completions / Responses
 - [ ] OpenAI-compatible / DeepSeek / Moonshot
-- [ ] Anthropic Claude
-- [ ] Google Gemini
+- [x] Anthropic Claude
+- [x] Google Gemini
 - [ ] Alibaba DashScope / Qwen
 - [ ] Volcengine Ark / Doubao
-- [ ] Embedding、Tool Calling、Structured Output 和流式矩阵
+- [x] 建立 Embedding、Tool Calling、Structured Output 和流式矩阵
 
 ## Phase 3：国内 Provider 扩展
 
@@ -34,8 +38,8 @@
 
 ## Phase 4：可靠性工具
 
-- [ ] 标准错误分类和 Retry-After
-- [ ] 显式同目标 retry helper
+- [x] 标准错误分类和 Retry-After 基线
+- [x] 显式同目标 retry helper
 - [ ] Health sample、circuit-breaker signal 和 metrics hooks
 - [ ] 宿主可控的候选评分与 failover 辅助包
 - [ ] 性能、故障注入和兼容性报告

@@ -1,4 +1,4 @@
-package uukit
+package llmkit
 
 import (
 	"fmt"
@@ -6,30 +6,57 @@ import (
 )
 
 type Registry struct {
-	mu       sync.RWMutex
-	adapters map[ProviderID]Adapter
+	mu        sync.RWMutex
+	providers map[ProviderID]Provider
 }
 
 func NewRegistry() *Registry {
-	return &Registry{adapters: make(map[ProviderID]Adapter)}
+	return &Registry{providers: make(map[ProviderID]Provider)}
 }
 
-func (r *Registry) Register(adapter Adapter) error {
-	if adapter == nil || adapter.ID() == "" {
-		return fmt.Errorf("uukit: adapter and provider ID are required")
+func (r *Registry) Register(provider Provider) error {
+	if provider == nil || provider.ID() == "" {
+		return fmt.Errorf("llmkit: provider and provider ID are required")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, exists := r.adapters[adapter.ID()]; exists {
-		return fmt.Errorf("uukit: provider %q already registered", adapter.ID())
+	if _, exists := r.providers[provider.ID()]; exists {
+		return fmt.Errorf("llmkit: provider %q already registered", provider.ID())
 	}
-	r.adapters[adapter.ID()] = adapter
+	r.providers[provider.ID()] = provider
 	return nil
 }
 
-func (r *Registry) Get(id ProviderID) (Adapter, bool) {
+func (r *Registry) Get(id ProviderID) (Provider, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	adapter, ok := r.adapters[id]
-	return adapter, ok
+	provider, ok := r.providers[id]
+	return provider, ok
+}
+
+func (r *Registry) Generator(id ProviderID) (Generator, bool) {
+	provider, ok := r.Get(id)
+	if !ok {
+		return nil, false
+	}
+	generator, ok := provider.(Generator)
+	return generator, ok
+}
+
+func (r *Registry) StreamGenerator(id ProviderID) (StreamGenerator, bool) {
+	provider, ok := r.Get(id)
+	if !ok {
+		return nil, false
+	}
+	generator, ok := provider.(StreamGenerator)
+	return generator, ok
+}
+
+func (r *Registry) Embedder(id ProviderID) (Embedder, bool) {
+	provider, ok := r.Get(id)
+	if !ok {
+		return nil, false
+	}
+	embedder, ok := provider.(Embedder)
+	return embedder, ok
 }

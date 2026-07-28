@@ -1,17 +1,17 @@
-# uukit-sidecar 需求
+# llmkit-sidecar 需求
 
 ## 文档信息
 
 - 状态：需求基线
 - 版本：v1.0
 - 更新时间：2026-07-28
-- 适用范围：非 Go 桌面宿主调用 uukit
+- 适用范围：非 Go 桌面宿主调用 llmkit
 
 ## 目标
 
-`uukit-sidecar` 是随宿主桌面应用安装和启动的本地辅助进程。它让 Rust、Swift、Kotlin 等非 Go 宿主复用 uukit 的 Provider adapter、协议、流式传输、错误分类和 usage 归一能力，而无需通过 FFI 或在其他语言中维护第二套 Provider 实现。
+`llmkit-sidecar` 是随宿主桌面应用安装和启动的本地辅助进程。它让 Rust、Swift、Kotlin 等非 Go 宿主复用 llmkit 的 Provider adapter、协议、流式传输、错误分类和 usage 归一能力，而无需通过 FFI 或在其他语言中维护第二套 Provider 实现。
 
-sidecar 是 uukit 的可选发布产物，不是独立 AI 网关产品，不提供公网服务、用户系统、数据库、管理后台或业务路由。
+sidecar 是 llmkit 的可选发布产物，不是独立 AI 网关产品，不提供公网服务、用户系统、数据库、管理后台或业务路由。
 
 ## 典型调用链
 
@@ -19,8 +19,8 @@ sidecar 是 uukit 的可选发布产物，不是独立 AI 网关产品，不提�
 Desktop host
   -> credential store
   -> authenticated local IPC
-  -> uukit-sidecar
-  -> uukit core
+  -> llmkit-sidecar
+  -> llmkit core
   -> selected LLM Provider
 ```
 
@@ -32,7 +32,7 @@ Desktop host
 
 - 宿主启动和监管 sidecar；父进程退出后 sidecar 必须自动退出。
 - sidecar 必须提供 `Handshake`、`Health` 和优雅 `Shutdown`。
-- 握手返回 sidecar 版本、uukit 版本、协议版本、构建信息和能力集合。
+- 握手返回 sidecar 版本、llmkit 版本、协议版本、构建信息和能力集合。
 - 协议不兼容、构建身份校验失败或会话认证失败时必须 fail closed。
 - sidecar 崩溃后的重启次数由宿主限制；不得自动重放未确认是否已到达 Provider 的生成请求。
 
@@ -41,7 +41,7 @@ Desktop host
 - 提供 `ListCapabilities`、`ValidateCredential`、`Generate`、`Embed` 和 `Cancel`。
 - `Generate` 支持非流式与流式响应、tool call、structured output、usage、finish reason 和 Provider request ID。
 - 所有调用支持 deadline、context cancellation、最大请求/响应限制和背压。
-- 错误必须使用 uukit 标准错误分类，并保留安全的 retryable、Retry-After 和 Provider request ID 元数据。
+- 错误必须使用 llmkit 标准错误分类，并保留安全的 retryable、Retry-After 和 Provider request ID 元数据。
 - Provider 凭据必须是请求级输入；sidecar 不提供凭据创建、列表或持久化接口。
 
 ### IPC Transport
@@ -65,9 +65,9 @@ Desktop host
 
 ### sidecar 负责
 
-- 将版本化 IPC 消息映射为 uukit 公共 API；
+- 将版本化 IPC 消息映射为 llmkit 公共 API；
 - 维护单次本地会话、并发请求和流式事件；
-- 调用 uukit adapter 并返回标准结果；
+- 调用 llmkit adapter 并返回标准结果；
 - 保证本地进程边界的认证、限制、取消和脱敏。
 
 ### 宿主负责
@@ -121,7 +121,7 @@ Desktop host
 
 1. 定义协议消息、错误、事件顺序和兼容策略。
 2. 实现 session handshake、Unix socket/named pipe transport 和请求调度。
-3. 接入 uukit Generate/Embed/ValidateCredential，完成 streaming/cancel/backpressure。
+3. 接入 llmkit Generate/Embed/ValidateCredential，完成 streaming/cancel/backpressure。
 4. 提供 Rust 测试客户端和最小宿主示例，验证非 Go 集成体验。
 5. 建立跨平台构建、签名、checksum、SBOM 和 release manifest。
 6. 运行安全、协议、Provider conformance 与桌面端到端验收。

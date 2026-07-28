@@ -1,8 +1,8 @@
-# uukit Repository Rules
+# llmkit Repository Rules
 
 These rules apply to the entire repository.
 
-1. uukit is an embeddable Go SDK, not a hosted gateway product. The optional `uukit-sidecar` is a thin local SDK transport for non-Go hosts and must not become a remotely hosted control plane.
+1. llmkit is an embeddable Go SDK, not a hosted gateway product. The optional `llmkit-sidecar` is a thin local SDK transport for non-Go hosts and must not become a remotely hosted control plane.
 2. Core packages must not depend on Gin, Echo, database drivers, web UI frameworks, or a global configuration singleton.
 3. Host applications own users, authorization, consent, pricing, billing, routing policy, and durable audit storage.
 4. Provider adapters own only provider-specific protocol, authentication headers, endpoint construction, response parsing, usage normalization, and error classification.

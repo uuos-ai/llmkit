@@ -1,3 +1,3 @@
-module github.com/uuos-ai/uukit
+module github.com/uuos-ai/llmkit
 
 go 1.24.0

@@ -1,16 +1,16 @@
-# uukit
+# llmkit
 
-`uukit` 是一个独立、可嵌入的 Go SDK，用统一接口对接国内外主流 LLM Provider，减少每个项目重复处理协议、鉴权、流式响应、错误分类、用量归一和模型能力差异。
+`llmkit` 是一个独立、可嵌入的 Go SDK，用统一接口对接国内外主流 LLM Provider，减少每个项目重复处理协议、鉴权、流式响应、错误分类、用量归一和模型能力差异。
 
 ## 定位
 
-`uukit` 的核心是 SDK，不是 AI 网关产品，也不拥有宿主应用的用户、支付、额度、路由政策或数据库。对于 Rust、Swift、Kotlin 等非 Go 宿主，项目同时提供可选的本地 `uukit-sidecar`，把同一套 SDK 能力通过受保护的版本化 IPC 暴露给宿主。
+`llmkit` 的核心是 SDK，不是 AI 网关产品，也不拥有宿主应用的用户、支付、额度、路由政策或数据库。对于 Rust、Swift、Kotlin 等非 Go 宿主，项目同时提供可选的本地 `llmkit-sidecar`，把同一套 SDK 能力通过受保护的版本化 IPC 暴露给宿主。
 
 ```text
 Host Application
 ├── product policy / consent / billing / audit
 ├── routing and failover policy
-└── uukit
+└── llmkit
     ├── provider adapters
     ├── protocol codecs
     ├── HTTP and SSE transport
@@ -26,17 +26,18 @@ Host Application
 - Host-owned policy：SDK 不替宿主决定用户权限、跨区域同意、价格和最终路由。
 - Explicit behavior：重试、故障转移、超时和流式终止由显式配置控制。
 - Auditable：每次调用返回 Provider、模型、attempt、usage 和标准化错误。
-- Replaceable：协议转换、Transport 和 Adapter 均可替换。
+- Replaceable：协议转换、Transport 和 Provider 实现均可替换。
 - Permissive licensing：项目采用 Apache-2.0，不复制 AGPL 项目代码。
 - One implementation：Go module 与 sidecar 使用相同核心包和版本，不形成第二套 Provider 实现。
 
 ## 初始范围
 
-计划优先覆盖：
+Provider 覆盖规划：
 
-- OpenAI-compatible
-- Anthropic Claude
-- Google Gemini
+- OpenAI Chat Completions / Responses（已实现）
+- Anthropic Claude Messages（已实现）
+- Google Gemini generateContent（已实现）
+- OpenAI-compatible / DeepSeek / Moonshot
 - DeepSeek
 - Alibaba Cloud DashScope / Qwen
 - Volcengine Ark / Doubao
@@ -49,12 +50,17 @@ Host Application
 
 ## 当前状态
 
-项目处于架构基线阶段。当前已建立最小 Provider/Registry 接口，并沉淀对 new-api `relay`、`relaykit` 和 TokenHub 的分析。
+项目处于首批 Provider 落地阶段。当前已建立类型化
+Provider/Registry API、请求级凭据、HTTP Transport、SSE parser、
+显式同目标 retry 和 conformance harness，并完成 OpenAI Chat
+Completions/Responses、Anthropic Messages、Google Gemini
+generateContent/embedding 的独立离线协议合同测试。
 
 - [分析索引](./docs/README.md)
 - [new-api relay/relaykit 分析](./docs/research/new-api-relay-relaykit-analysis.md)
 - [SDK 架构边界](./docs/architecture/provider-sdk-boundary.md)
-- [uukit-sidecar 需求](./docs/architecture/sidecar-requirements.md)
+- [llmkit-sidecar 需求](./docs/architecture/sidecar-requirements.md)
+- [Provider 兼容矩阵](./docs/provider-compatibility.md)
 - [路线图](./docs/roadmap.md)
 
 ## License

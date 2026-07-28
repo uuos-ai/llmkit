@@ -1,0 +1,74 @@
+# Provider compatibility matrix
+
+Status values:
+
+- **Tested**: covered by offline protocol fixtures and the conformance harness.
+- **Planned**: architecture and scope accepted; implementation not complete.
+- **Not applicable**: the protocol does not expose the capability.
+
+| Provider protocol | Generate | Stream | Embed | Tools | Structured output | Reasoning | Usage | Error mapping |
+|---|---|---|---|---|---|---|---|---|
+| OpenAI Chat Completions | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested |
+| OpenAI Responses | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested |
+| Anthropic Messages | Tested | Tested | Not applicable | Tested codec | Tested codec | Tested codec | Tested | Tested |
+| Google Gemini generateContent | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested |
+| DeepSeek | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+| Alibaba DashScope/Qwen | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+| Volcengine Ark/Doubao | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+| Zhipu GLM | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+| Moonshot/Kimi | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+| MiniMax | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+| Tencent Hunyuan | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+
+“Tested codec” currently means request/response fields are encoded or decoded
+by the provider adapter. Dedicated end-to-end tool-call and structured-output fixture cases
+remain required before the whole capability is declared fully Tested.
+
+## OpenAI protocol notes
+
+- Both Chat Completions and Responses are native paths; select them explicitly
+  with the provider option `openai.api`.
+- Chat streams require a finish reason and `[DONE]`.
+- Responses streams require a terminal `response.completed` or
+  `response.incomplete` event.
+- Unknown provider options are rejected.
+- Error bodies are bounded and never included in public error strings.
+- The tests use independently authored offline fixtures and require no API key.
+
+## Anthropic protocol notes
+
+- The adapter targets the native Messages endpoint and API version
+  `2023-06-01`.
+- `system` content is moved to the top-level system field, and llmkit tool
+  result messages are represented as Anthropic `user` turns containing
+  `tool_result` blocks.
+- Streams require both a finish-bearing `message_delta` and the terminal
+  `message_stop`; an early EOF is a malformed response.
+- Tool input fragments are emitted as normalized tool-argument deltas without
+  attempting to parse incomplete JSON.
+- JSON outputs use `output_config.format`; cache read/write counters are
+  preserved in normalized usage.
+- Unknown stream event and delta variants are ignored for forward
+  compatibility.
+- Protocol references (retrieved 2026-07-28):
+  [Messages API](https://platform.claude.com/docs/en/api/messages/create),
+  [streaming Messages](https://platform.claude.com/docs/en/build-with-claude/streaming),
+  and [structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs).
+
+## Google Gemini protocol notes
+
+- The adapter targets native `generateContent`, `streamGenerateContent`, and
+  `batchEmbedContents` methods under `v1beta`.
+- Request-scoped credentials are expected to set the `x-goog-api-key` header;
+  API keys are never stored in provider configuration.
+- llmkit assistant turns map to Gemini `model` content, while tool result turns
+  map to `function` content. Tool results therefore retain both call ID and
+  function name in the normalized type.
+- SSE completion requires a candidate finish reason; an early EOF is treated as
+  a malformed response.
+- Prompt, candidate, cached, thought, and total token counters are normalized
+  from `usageMetadata`.
+- Protocol references (retrieved 2026-07-28):
+  [generateContent](https://ai.google.dev/api/generate-content),
+  [embeddings](https://ai.google.dev/api/embeddings), and
+  [structured outputs](https://ai.google.dev/gemini-api/docs/structured-output).
