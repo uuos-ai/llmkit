@@ -37,7 +37,9 @@ Provider 覆盖规划：
 - OpenAI Chat Completions / Responses（已实现）
 - Anthropic Claude Messages（已实现）
 - Google Gemini generateContent（已实现）
-- OpenAI-compatible / DeepSeek / Moonshot
+- DeepSeek OpenAI-compatible Chat（已实现）
+- Alibaba Cloud DashScope / Qwen OpenAI-compatible（已实现）
+- 其他 OpenAI-compatible / Moonshot
 - DeepSeek
 - Alibaba Cloud DashScope / Qwen
 - Volcengine Ark / Doubao

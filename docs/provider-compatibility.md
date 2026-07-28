@@ -12,8 +12,8 @@ Status values:
 | OpenAI Responses | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested |
 | Anthropic Messages | Tested | Tested | Not applicable | Tested codec | Tested codec | Tested codec | Tested | Tested |
 | Google Gemini generateContent | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested |
-| DeepSeek | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
-| Alibaba DashScope/Qwen | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+| DeepSeek OpenAI-compatible Chat | Tested | Tested | Not exposed | Tested codec | Tested codec | Tested codec | Tested | Tested via shared codec |
+| Alibaba DashScope/Qwen OpenAI-compatible | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested via shared codec |
 | Volcengine Ark/Doubao | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
 | Zhipu GLM | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
 | Moonshot/Kimi | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
@@ -72,3 +72,18 @@ remain required before the whole capability is declared fully Tested.
   [generateContent](https://ai.google.dev/api/generate-content),
   [embeddings](https://ai.google.dev/api/embeddings), and
   [structured outputs](https://ai.google.dev/gemini-api/docs/structured-output).
+
+## Domestic OpenAI-compatible protocol notes
+
+- Compatibility is expressed through dedicated Provider packages rather than
+  treating every service as an undifferentiated OpenAI endpoint. Each package
+  controls its endpoint layout and advertised capabilities.
+- DeepSeek targets the documented `/chat/completions` path and deliberately
+  does not implement `Embedder`.
+- DashScope accepts region or workspace-specific compatible base URLs and
+  supports Chat, Responses, and text embeddings through the shared codec.
+- Protocol references (retrieved 2026-07-29):
+  [DeepSeek API](https://api-docs.deepseek.com/guides/function_calling/),
+  [DashScope base URLs](https://help.aliyun.com/en/model-studio/base-url),
+  [Qwen OpenAI compatibility](https://help.aliyun.com/en/model-studio/compatibility-of-openai-with-dashscope),
+  and [DashScope embeddings](https://help.aliyun.com/en/model-studio/embedding-interfaces-compatible-with-openai).

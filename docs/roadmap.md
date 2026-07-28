@@ -22,10 +22,10 @@
 ## Phase 2：首批 Provider
 
 - [x] OpenAI native Chat Completions / Responses
-- [ ] OpenAI-compatible / DeepSeek / Moonshot
+- [ ] OpenAI-compatible profiles（DeepSeek、DashScope 已完成；Moonshot 等待）
 - [x] Anthropic Claude
 - [x] Google Gemini
-- [ ] Alibaba DashScope / Qwen
+- [x] Alibaba DashScope / Qwen
 - [ ] Volcengine Ark / Doubao
 - [x] 建立 Embedding、Tool Calling、Structured Output 和流式矩阵
 

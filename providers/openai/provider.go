@@ -28,17 +28,22 @@ const (
 )
 
 type Config struct {
-	ID         llmkit.ProviderID
-	Endpoint   string
-	DefaultAPI API
-	Transport  *transport.Client
+	ID       llmkit.ProviderID
+	Endpoint string
+	// APIPathPrefix is prepended to protocol paths. The default is "/v1".
+	// Set it to "/" for compatible APIs whose base endpoint already routes
+	// directly to /chat/completions.
+	APIPathPrefix string
+	DefaultAPI    API
+	Transport     *transport.Client
 }
 
 type Provider struct {
-	id         llmkit.ProviderID
-	endpoint   string
-	defaultAPI API
-	transport  *transport.Client
+	id            llmkit.ProviderID
+	endpoint      string
+	apiPathPrefix string
+	defaultAPI    API
+	transport     *transport.Client
 }
 
 func New(config Config) (*Provider, error) {
@@ -64,7 +69,18 @@ func New(config Config) (*Provider, error) {
 	if client == nil {
 		client = transport.New(transport.Config{})
 	}
-	return &Provider{id: id, endpoint: endpoint, defaultAPI: defaultAPI, transport: client}, nil
+	pathPrefix := config.APIPathPrefix
+	if pathPrefix == "" {
+		pathPrefix = "/v1"
+	} else if pathPrefix == "/" {
+		pathPrefix = ""
+	} else {
+		pathPrefix = "/" + strings.Trim(pathPrefix, "/")
+	}
+	return &Provider{
+		id: id, endpoint: endpoint, apiPathPrefix: pathPrefix,
+		defaultAPI: defaultAPI, transport: client,
+	}, nil
 }
 
 func (p *Provider) ID() llmkit.ProviderID { return p.id }
@@ -238,7 +254,7 @@ func (p *Provider) doJSON(
 		call.Target,
 		call.Credential,
 		http.MethodPost,
-		p.endpointFor(call.Target)+path,
+		p.endpointFor(call.Target)+p.apiPathPrefix+strings.TrimPrefix(path, "/v1"),
 		payload,
 		nil,
 	)
