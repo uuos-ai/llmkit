@@ -11,6 +11,9 @@ uukit
 ├── provider.go              stable host-facing API
 ├── registry.go              explicit adapter registration
 ├── errors.go                normalized error taxonomy
+├── cmd/uukit-sidecar/       optional local IPC adapter for non-Go hosts
+├── sidecar/protocol/        versioned IPC messages and compatibility
+├── sidecar/server/          lifecycle, session auth and stream bridge
 ├── codec/                   protocol DTO and semantic conversion
 ├── transport/               HTTP, SSE, timeout and cancellation
 ├── providers/
@@ -63,3 +66,7 @@ uukit
 uukit 对每个失败返回标准化 `ProviderError`。宿主根据错误种类、Provider 健康、授权区域和策略选择下一 Target，并为每次调用生成新的 attempt。SDK 不自行选择另一个 Provider。
 
 这使宿主能够明确展示：原 Provider/模型、失败原因、实际 Provider/模型、区域和额度影响。
+
+## 非 Go 宿主
+
+非 Go 应用不得重新实现 Provider adapter。它们可以随应用分发同版本的 `uukit-sidecar`，通过本地 IPC 调用 uukit。sidecar 只是 `Adapter` API 的进程边界映射，不新增路由、故障转移、凭据存储或业务策略。详细要求见 [uukit-sidecar 需求](./sidecar-requirements.md)。

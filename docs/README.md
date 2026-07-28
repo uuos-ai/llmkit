@@ -7,6 +7,7 @@
 ## Architecture
 
 - [Provider SDK 边界](./architecture/provider-sdk-boundary.md)
+- [uukit-sidecar 需求](./architecture/sidecar-requirements.md)
 
 ## Delivery
 

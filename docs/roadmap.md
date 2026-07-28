@@ -7,6 +7,7 @@
 - [x] 沉淀 new-api relay/relaykit 与 TokenHub 分析
 - [ ] 建立 ADR、贡献指南、安全策略和版本兼容政策
 - [ ] 建立 CI、lint、race、coverage、dependency review 和 release workflow
+- [ ] 批准 uukit-sidecar IPC、安全、兼容和发布需求基线
 
 ## Phase 1：协议与 Transport
 
@@ -38,3 +39,14 @@
 - [ ] Health sample、circuit-breaker signal 和 metrics hooks
 - [ ] 宿主可控的候选评分与 failover 辅助包
 - [ ] 性能、故障注入和兼容性报告
+
+## Phase 5：非 Go 宿主 sidecar
+
+- [ ] 定义 sidecar v1 协议、framing、事件顺序和兼容矩阵
+- [ ] 实现 session handshake、Unix domain socket 和 Windows named pipe
+- [ ] 实现 Generate、Embed、ValidateCredential、Cancel、Health 和 Shutdown
+- [ ] 实现 streaming 背压、deadline、消息大小限制和崩溃隔离
+- [ ] 提供 Rust 测试客户端与最小桌面宿主示例
+- [ ] 建立 macOS arm64/amd64、Windows amd64 和 Linux amd64 构建
+- [ ] 发布签名校验材料、checksums、SBOM 和 release manifest
+- [ ] 完成安全、fuzz、race、协议兼容及端到端测试

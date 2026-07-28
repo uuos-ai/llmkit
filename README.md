@@ -4,7 +4,7 @@
 
 ## 定位
 
-`uukit` 是 SDK，不是 AI 网关产品，也不拥有宿主应用的用户、支付、额度、路由政策或数据库。
+`uukit` 的核心是 SDK，不是 AI 网关产品，也不拥有宿主应用的用户、支付、额度、路由政策或数据库。对于 Rust、Swift、Kotlin 等非 Go 宿主，项目同时提供可选的本地 `uukit-sidecar`，把同一套 SDK 能力通过受保护的版本化 IPC 暴露给宿主。
 
 ```text
 Host Application
@@ -15,7 +15,8 @@ Host Application
     ├── protocol codecs
     ├── HTTP and SSE transport
     ├── normalized errors and usage
-    └── capability discovery
+    ├── capability discovery
+    └── optional local sidecar for non-Go hosts
 ```
 
 ## 设计原则
@@ -27,6 +28,7 @@ Host Application
 - Auditable：每次调用返回 Provider、模型、attempt、usage 和标准化错误。
 - Replaceable：协议转换、Transport 和 Adapter 均可替换。
 - Permissive licensing：项目采用 Apache-2.0，不复制 AGPL 项目代码。
+- One implementation：Go module 与 sidecar 使用相同核心包和版本，不形成第二套 Provider 实现。
 
 ## 初始范围
 
@@ -52,6 +54,7 @@ Host Application
 - [分析索引](./docs/README.md)
 - [new-api relay/relaykit 分析](./docs/research/new-api-relay-relaykit-analysis.md)
 - [SDK 架构边界](./docs/architecture/provider-sdk-boundary.md)
+- [uukit-sidecar 需求](./docs/architecture/sidecar-requirements.md)
 - [路线图](./docs/roadmap.md)
 
 ## License
