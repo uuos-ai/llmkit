@@ -62,6 +62,7 @@ generateContent/embedding 的独立离线协议合同测试。
 - [new-api relay/relaykit 分析](./docs/research/new-api-relay-relaykit-analysis.md)
 - [SDK 架构边界](./docs/architecture/provider-sdk-boundary.md)
 - [llmkit-sidecar 需求](./docs/architecture/sidecar-requirements.md)
+- [llmkit-sidecar protocol v1](./docs/sidecar-protocol-v1.md)
 - [Provider 兼容矩阵](./docs/provider-compatibility.md)
 - [路线图](./docs/roadmap.md)
 

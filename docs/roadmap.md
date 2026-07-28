@@ -47,10 +47,10 @@
 
 ## Phase 5：非 Go 宿主 sidecar
 
-- [ ] 定义 sidecar v1 协议、framing、事件顺序和兼容矩阵
-- [ ] 实现 session handshake、Unix domain socket 和 Windows named pipe
-- [ ] 实现 Generate、Embed、ValidateCredential、Cancel、Health 和 Shutdown
-- [ ] 实现 streaming 背压、deadline、消息大小限制和崩溃隔离
+- [x] 定义 sidecar v1 协议、framing、事件顺序和兼容基线
+- [ ] 实现 session handshake、Unix domain socket 和 Windows named pipe（Unix 已完成）
+- [ ] 实现 Generate、Embed、ValidateCredential、Cancel、Health 和 Shutdown（ValidateCredential 待定义）
+- [x] 实现 streaming 背压、context cancellation 和消息大小限制
 - [ ] 提供 Rust 测试客户端与最小桌面宿主示例
 - [ ] 建立 macOS arm64/amd64、Windows amd64 和 Linux amd64 构建
 - [ ] 发布签名校验材料、checksums、SBOM 和 release manifest

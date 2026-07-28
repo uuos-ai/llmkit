@@ -12,10 +12,10 @@ type ModelID string
 // Target is the single, already-authorized execution target selected by the host.
 // A provider implementation must not change Provider, Model, Region, or Endpoint.
 type Target struct {
-	Provider ProviderID
-	Model    ModelID
-	Region   string
-	Endpoint string
+	Provider ProviderID `json:"provider"`
+	Model    ModelID    `json:"model"`
+	Region   string     `json:"region,omitempty"`
+	Endpoint string     `json:"endpoint,omitempty"`
 }
 
 type Capability string
@@ -32,13 +32,13 @@ const (
 )
 
 type ModelCapabilities struct {
-	Capabilities   []Capability
-	MaxInputTokens int64
+	Capabilities   []Capability `json:"capabilities"`
+	MaxInputTokens int64        `json:"max_input_tokens,omitempty"`
 }
 
 type Capabilities struct {
-	Provider ProviderID
-	Models   map[ModelID]ModelCapabilities
+	Provider ProviderID                    `json:"provider"`
+	Models   map[ModelID]ModelCapabilities `json:"models"`
 }
 
 func (c Capabilities) Supports(model ModelID, capability Capability) bool {
@@ -105,60 +105,60 @@ const (
 
 // ContentPart is a tagged union. Only the field matching Type may be set.
 type ContentPart struct {
-	Type       ContentType
-	Text       string
-	Media      *MediaContent
-	ToolCall   *ToolCall
-	ToolResult *ToolResult
+	Type       ContentType   `json:"type"`
+	Text       string        `json:"text,omitempty"`
+	Media      *MediaContent `json:"media,omitempty"`
+	ToolCall   *ToolCall     `json:"tool_call,omitempty"`
+	ToolResult *ToolResult   `json:"tool_result,omitempty"`
 }
 
 type MediaContent struct {
-	MediaType string
-	URL       string
-	Data      []byte
+	MediaType string `json:"media_type"`
+	URL       string `json:"url,omitempty"`
+	Data      []byte `json:"data,omitempty"`
 }
 
 type Message struct {
-	Role  Role
-	Parts []ContentPart
+	Role  Role          `json:"role"`
+	Parts []ContentPart `json:"parts"`
 }
 
 type Tool struct {
-	Name        string
-	Description string
-	InputSchema []byte
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	InputSchema []byte `json:"input_schema"`
 }
 
 type ToolCall struct {
-	ID        string
-	Name      string
-	Arguments []byte
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments []byte `json:"arguments"`
 }
 
 type ToolResult struct {
-	CallID string
+	CallID string `json:"call_id"`
 	// Name is required by protocols such as Gemini that correlate tool
 	// results by function name rather than only by an opaque call ID.
-	Name    string
-	Content []ContentPart
-	IsError bool
+	Name    string        `json:"name"`
+	Content []ContentPart `json:"content"`
+	IsError bool          `json:"is_error,omitempty"`
 }
 
 type ResponseFormat struct {
-	Name   string
-	Schema []byte
-	Strict bool
+	Name   string `json:"name"`
+	Schema []byte `json:"schema"`
+	Strict bool   `json:"strict"`
 }
 
 type GenerateRequest struct {
-	Messages        []Message
-	Tools           []Tool
-	ResponseFormat  *ResponseFormat
-	MaxOutputTokens *int64
-	Temperature     *float64
-	TopP            *float64
-	Stop            []string
-	ProviderOptions map[string][]byte
+	Messages        []Message         `json:"messages"`
+	Tools           []Tool            `json:"tools,omitempty"`
+	ResponseFormat  *ResponseFormat   `json:"response_format,omitempty"`
+	MaxOutputTokens *int64            `json:"max_output_tokens,omitempty"`
+	Temperature     *float64          `json:"temperature,omitempty"`
+	TopP            *float64          `json:"top_p,omitempty"`
+	Stop            []string          `json:"stop,omitempty"`
+	ProviderOptions map[string][]byte `json:"provider_options,omitempty"`
 }
 
 // GenerateCall contains all request-scoped inputs for exactly one target.
@@ -182,9 +182,9 @@ type EmbedCall struct {
 }
 
 type EmbedResponse struct {
-	ProviderRequestID string
-	Vectors           [][]float32
-	Usage             Usage
+	ProviderRequestID string      `json:"provider_request_id,omitempty"`
+	Vectors           [][]float32 `json:"vectors"`
+	Usage             Usage       `json:"usage"`
 }
 
 type UsageSource string
@@ -196,19 +196,19 @@ const (
 )
 
 type Usage struct {
-	Source          UsageSource
-	InputTokens     int64
-	OutputTokens    int64
-	TotalTokens     int64
-	CachedRead      int64
-	CachedWrite     int64
-	ReasoningTokens int64
-	TextTokens      int64
-	ImageTokens     int64
-	AudioTokens     int64
+	Source          UsageSource `json:"source"`
+	InputTokens     int64       `json:"input_tokens,omitempty"`
+	OutputTokens    int64       `json:"output_tokens,omitempty"`
+	TotalTokens     int64       `json:"total_tokens,omitempty"`
+	CachedRead      int64       `json:"cached_read,omitempty"`
+	CachedWrite     int64       `json:"cached_write,omitempty"`
+	ReasoningTokens int64       `json:"reasoning_tokens,omitempty"`
+	TextTokens      int64       `json:"text_tokens,omitempty"`
+	ImageTokens     int64       `json:"image_tokens,omitempty"`
+	AudioTokens     int64       `json:"audio_tokens,omitempty"`
 	// Extensions may contain documented, non-sensitive numeric counters using
 	// provider-qualified keys. It must never contain arbitrary provider DTOs.
-	Extensions map[string]int64
+	Extensions map[string]int64 `json:"extensions,omitempty"`
 }
 
 type FinishReason string
@@ -223,11 +223,11 @@ const (
 )
 
 type Response struct {
-	ProviderRequestID string
-	Message           Message
-	Usage             Usage
-	FinishReason      FinishReason
-	Adaptations       []Adaptation
+	ProviderRequestID string       `json:"provider_request_id,omitempty"`
+	Message           Message      `json:"message"`
+	Usage             Usage        `json:"usage"`
+	FinishReason      FinishReason `json:"finish_reason"`
+	Adaptations       []Adaptation `json:"adaptations,omitempty"`
 }
 
 type AdaptationQuality string
@@ -240,10 +240,10 @@ const (
 
 // Adaptation makes protocol compromises observable to the host.
 type Adaptation struct {
-	Field   string
-	Action  string
-	Quality AdaptationQuality
-	Detail  string
+	Field   string            `json:"field"`
+	Action  string            `json:"action"`
+	Quality AdaptationQuality `json:"quality"`
+	Detail  string            `json:"detail,omitempty"`
 }
 
 type StreamEventType string
@@ -261,15 +261,15 @@ const (
 )
 
 type StreamEvent struct {
-	Type              StreamEventType
-	Index             int
-	Text              string
-	ToolCall          *ToolCall
-	ArgumentsDelta    []byte
-	Usage             *Usage
-	FinishReason      FinishReason
-	ProviderRequestID string
-	Adaptations       []Adaptation
+	Type              StreamEventType `json:"type"`
+	Index             int             `json:"index,omitempty"`
+	Text              string          `json:"text,omitempty"`
+	ToolCall          *ToolCall       `json:"tool_call,omitempty"`
+	ArgumentsDelta    []byte          `json:"arguments_delta,omitempty"`
+	Usage             *Usage          `json:"usage,omitempty"`
+	FinishReason      FinishReason    `json:"finish_reason,omitempty"`
+	ProviderRequestID string          `json:"provider_request_id,omitempty"`
+	Adaptations       []Adaptation    `json:"adaptations,omitempty"`
 }
 
 // DrainStream is a convenience for consumers that need all events. It keeps
