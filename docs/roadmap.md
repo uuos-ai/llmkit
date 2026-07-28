@@ -34,14 +34,15 @@
 - [ ] Zhipu GLM
 - [ ] MiniMax
 - [ ] Tencent Hunyuan
-- [ ] Provider capability discovery 和模型目录缓存
+- [x] Provider capability discovery 缓存（host-triggered、TTL、并发合并）
+- [ ] 远端模型目录枚举与 Provider 特定刷新器
 
 ## Phase 4：可靠性工具
 
 - [x] 标准错误分类和 Retry-After 基线
 - [x] 显式同目标 retry helper
-- [ ] Health sample、circuit-breaker signal 和 metrics hooks
-- [ ] 宿主可控的候选评分与 failover 辅助包
+- [x] Health sample、circuit-breaker signal 和 metrics hooks
+- [x] 宿主显式控制的 failover 辅助包
 - [ ] 性能、故障注入和兼容性报告
 
 ## Phase 5：非 Go 宿主 sidecar

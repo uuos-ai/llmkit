@@ -65,6 +65,13 @@ generateContent/embedding 的独立离线协议合同测试。
 - [Provider 兼容矩阵](./docs/provider-compatibility.md)
 - [路线图](./docs/roadmap.md)
 
+## Reliability helpers
+
+- `retry` 仅对一个不可变 `Target` 做显式、有限次数重试。
+- `reliability` 产生不含内容与凭据的 attempt sample，并维护只读健康信号；它不拦截请求。
+- `failover` 只遍历宿主明确提供的目标列表，并要求宿主为每次失败提供继续决策。
+- `catalog` 对宿主触发的 capability discovery 做 TTL 缓存和并发请求合并，不自行拉取或选择模型。
+
 ## License
 
 Apache License 2.0。
