@@ -56,6 +56,7 @@ Provider/Registry API、请求级凭据、凭据验证、HTTP Transport、SSE pa
 - [SDK 架构边界](./docs/architecture/provider-sdk-boundary.md)
 - [llmkit-sidecar 需求](./docs/architecture/sidecar-requirements.md)
 - [llmkit-sidecar protocol v1](./docs/sidecar-protocol-v1.md)
+- [llmkit-sidecar 兼容矩阵](./docs/sidecar-compatibility.md)
 - [Provider 兼容矩阵](./docs/provider-compatibility.md)
 - [路线图](./docs/roadmap.md)
 

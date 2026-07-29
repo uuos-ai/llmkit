@@ -52,6 +52,6 @@
 - [x] 实现 Generate、Embed、ValidateCredential、Cancel、Health 和 Shutdown
 - [x] 实现 streaming 背压、context cancellation 和消息大小限制
 - [x] 提供无第三方运行时依赖的 Rust Unix socket 测试客户端
-- [ ] 建立 macOS arm64/amd64、Windows amd64 和 Linux amd64 构建
-- [ ] 发布签名校验材料、checksums、SBOM 和 release manifest
+- [x] 建立 macOS arm64/amd64、Windows amd64 和 Linux amd64 构建
+- [x] 发布 Sigstore/GitHub attestations、checksums、SBOM 和 release manifest
 - [ ] 完成安全、fuzz、race、协议兼容及端到端测试

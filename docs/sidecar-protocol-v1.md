@@ -65,8 +65,9 @@ policy and therefore uses only adapter-owned official defaults.
 
 The command implements Unix-domain-socket and Windows named-pipe runtimes,
 requires a host `--parent-pid`, and exits when that process disappears.
-Packaging attestations and signed release artifacts remain part of the sidecar
-acceptance work.
+Tagged releases build all supported targets with SHA-256 checksums, SPDX JSON
+SBOMs, a machine-readable release manifest, and signed GitHub/Sigstore
+provenance and SBOM attestations. See `docs/sidecar-compatibility.md`.
 
 The dependency-free Rust framing/handshake example lives in
 `examples/rust-sidecar-client` and is intended for protocol smoke tests rather

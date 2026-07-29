@@ -30,14 +30,126 @@ jobs:
           go test -race ./...
           go build ./...
 
-  release:
+  build-sidecar:
     needs: verify
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+            format: tar
+          - goos: darwin
+            goarch: amd64
+            format: tar
+          - goos: windows
+            goarch: amd64
+            format: zip
+          - goos: linux
+            goarch: amd64
+            format: tar
+    env:
+      ARTIFACT_BASE: llmkit-sidecar_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build sidecar
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist/package
+          suffix=""
+          if [[ "${GOOS}" == "windows" ]]; then suffix=".exe"; fi
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${GITHUB_REF_NAME} -X main.llmkitVersion=${GITHUB_REF_NAME} -X main.buildID=${GITHUB_SHA}" \
+            -o "dist/package/llmkit-sidecar${suffix}" ./cmd/llmkit-sidecar
+      - name: Package sidecar
+        run: |
+          if [[ "${{ matrix.format }}" == "zip" ]]; then
+            (cd dist/package && zip -9 "../${ARTIFACT_BASE}.zip" llmkit-sidecar.exe)
+          else
+            tar -C dist/package -czf "dist/${ARTIFACT_BASE}.tar.gz" llmkit-sidecar
+          fi
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          file: dist/package/llmkit-sidecar${{ matrix.goos == 'windows' && '.exe' || '' }}
+          format: spdx-json
+          output-file: dist/${{ env.ARTIFACT_BASE }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attest archive provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/${{ env.ARTIFACT_BASE }}.${{ matrix.format == 'zip' && 'zip' || 'tar.gz' }}
+      - name: Attest archive SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/${{ env.ARTIFACT_BASE }}.${{ matrix.format == 'zip' && 'zip' || 'tar.gz' }}
+          sbom-path: dist/${{ env.ARTIFACT_BASE }}.spdx.json
+      - name: Upload release inputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARTIFACT_BASE }}
+          path: |
+            dist/${{ env.ARTIFACT_BASE }}.${{ matrix.format == 'zip' && 'zip' || 'tar.gz' }}
+            dist/${{ env.ARTIFACT_BASE }}.spdx.json
+          if-no-files-found: error
+
+  release:
+    needs: build-sidecar
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download release inputs
+        uses: actions/download-artifact@v7
+        with:
+          pattern: llmkit-sidecar_*
+          path: dist
+          merge-multiple: true
+      - name: Create checksums and release manifest
+        run: |
+          cd dist
+          sha256sum llmkit-sidecar_* > checksums.txt
+          jq -Rn \
+            --arg release "${GITHUB_REF_NAME}" \
+            --arg commit "${GITHUB_SHA}" \
+            '[inputs | select(length > 0) | capture("^(?<sha256>[0-9a-f]+)  (?<name>.+)$")] as $artifacts |
+            {
+              schema_version: 1,
+              release: $release,
+              source_commit: $commit,
+              go_module: ("github.com/uuos-ai/llmkit@" + $release),
+              sidecar: {version: $release, protocol: {minimum: "1.0", maximum: "1.0"}},
+              artifacts: $artifacts
+            }' < checksums.txt > release-manifest.json
+          sha256sum release-manifest.json >> checksums.txt
+      - name: Attest checksums and manifest
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/checksums.txt
+            dist/release-manifest.json
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" --verify-tag --generate-notes
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --verify-tag \
+            --notes-file docs/sidecar-compatibility.md
