@@ -39,7 +39,8 @@ Provider 覆盖规划：
 - Google Gemini generateContent（已实现）
 - DeepSeek OpenAI-compatible Chat（已实现）
 - Alibaba Cloud DashScope / Qwen OpenAI-compatible（已实现）
-- 其他 OpenAI-compatible / Moonshot
+- MiniMax、Zhipu GLM、Volcengine Ark、Tencent Hunyuan profiles（已实现）
+- Moonshot/Kimi（待完成官方协议复核）
 - DeepSeek
 - Alibaba Cloud DashScope / Qwen
 - Volcengine Ark / Doubao

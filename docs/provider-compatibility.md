@@ -14,11 +14,11 @@ Status values:
 | Google Gemini generateContent | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested |
 | DeepSeek OpenAI-compatible Chat | Tested | Tested | Not exposed | Tested codec | Tested codec | Tested codec | Tested | Tested via shared codec |
 | Alibaba DashScope/Qwen OpenAI-compatible | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested via shared codec |
-| Volcengine Ark/Doubao | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
-| Zhipu GLM | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+| Volcengine Ark/Doubao Responses | Tested codec | Tested codec | Not exposed | Tested codec | Tested codec | Tested codec | Tested codec | Tested via shared codec |
+| Zhipu GLM Chat | Tested codec | Tested codec | Not exposed | Tested codec | Not declared | Tested codec | Tested codec | Tested via shared codec |
 | Moonshot/Kimi | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
-| MiniMax | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
-| Tencent Hunyuan | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+| MiniMax Chat | Tested | Tested codec | Not exposed | Tested codec | Not declared | Tested codec | Tested | Tested via shared codec |
+| Tencent Hunyuan Chat/Embedding | Tested codec | Tested codec | Tested | Tested codec | Not declared | Not declared | Tested codec | Tested via shared codec |
 
 “Tested codec” currently means request/response fields are encoded or decoded
 by the provider adapter. Dedicated end-to-end tool-call and structured-output fixture cases
@@ -87,3 +87,9 @@ remain required before the whole capability is declared fully Tested.
   [DashScope base URLs](https://help.aliyun.com/en/model-studio/base-url),
   [Qwen OpenAI compatibility](https://help.aliyun.com/en/model-studio/compatibility-of-openai-with-dashscope),
   and [DashScope embeddings](https://help.aliyun.com/en/model-studio/embedding-interfaces-compatible-with-openai).
+
+- Additional profile references (retrieved 2026-07-29):
+  [MiniMax Chat](https://platform.minimaxi.com/docs/api-reference/text-chat-openai),
+  [Zhipu OpenAI compatibility](https://docs.bigmodel.cn/cn/guide/develop/openai/introduction),
+  [Volcengine Ark Responses](https://www.volcengine.com/docs/82379/1795150), and
+  [Tencent Hunyuan compatibility](https://cloud.tencent.com/document/product/1729/111007).

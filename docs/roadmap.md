@@ -26,14 +26,14 @@
 - [x] Anthropic Claude
 - [x] Google Gemini
 - [x] Alibaba DashScope / Qwen
-- [ ] Volcengine Ark / Doubao
+- [x] Volcengine Ark / Doubao Responses profile
 - [x] 建立 Embedding、Tool Calling、Structured Output 和流式矩阵
 
 ## Phase 3：国内 Provider 扩展
 
-- [ ] Zhipu GLM
-- [ ] MiniMax
-- [ ] Tencent Hunyuan
+- [x] Zhipu GLM Chat profile
+- [x] MiniMax Chat profile
+- [x] Tencent Hunyuan Chat/Embedding profile
 - [x] Provider capability discovery 缓存（host-triggered、TTL、并发合并）
 - [ ] 远端模型目录枚举与 Provider 特定刷新器
 

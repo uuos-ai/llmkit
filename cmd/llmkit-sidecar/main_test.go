@@ -30,7 +30,10 @@ func TestDefaultRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"openai", "anthropic", "gemini", "deepseek", "dashscope"} {
+	for _, id := range []string{
+		"openai", "anthropic", "gemini", "deepseek", "dashscope",
+		"minimax", "zhipu", "volcengine", "hunyuan",
+	} {
 		if _, ok := registry.Get(llmkit.ProviderID(id)); !ok {
 			t.Fatalf("provider %q is not registered", id)
 		}

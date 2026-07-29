@@ -20,7 +20,11 @@ import (
 	"github.com/uuos-ai/llmkit/providers/dashscope"
 	"github.com/uuos-ai/llmkit/providers/deepseek"
 	"github.com/uuos-ai/llmkit/providers/gemini"
+	"github.com/uuos-ai/llmkit/providers/hunyuan"
+	"github.com/uuos-ai/llmkit/providers/minimax"
 	"github.com/uuos-ai/llmkit/providers/openai"
+	"github.com/uuos-ai/llmkit/providers/volcengine"
+	"github.com/uuos-ai/llmkit/providers/zhipu"
 	"github.com/uuos-ai/llmkit/sidecar/binding"
 	"github.com/uuos-ai/llmkit/sidecar/server"
 )
@@ -135,6 +139,10 @@ func defaultRegistry() (*llmkit.Registry, error) {
 		func() (llmkit.Provider, error) { return gemini.New(gemini.Config{}) },
 		func() (llmkit.Provider, error) { return deepseek.New(deepseek.Config{}) },
 		func() (llmkit.Provider, error) { return dashscope.New(dashscope.Config{}) },
+		func() (llmkit.Provider, error) { return minimax.New(minimax.Config{}) },
+		func() (llmkit.Provider, error) { return zhipu.New(zhipu.Config{}) },
+		func() (llmkit.Provider, error) { return volcengine.New(volcengine.Config{}) },
+		func() (llmkit.Provider, error) { return hunyuan.New(hunyuan.Config{}) },
 	}
 	for _, construct := range constructors {
 		provider, err := construct()
