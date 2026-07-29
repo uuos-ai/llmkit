@@ -20,6 +20,10 @@ Status values:
 | MiniMax Chat | Tested | Tested codec | Not exposed | Tested codec | Not declared | Tested codec | Tested | Tested via shared codec |
 | Tencent Hunyuan Chat/Embedding | Tested codec | Tested codec | Tested | Tested codec | Not declared | Not declared | Tested codec | Tested via shared codec |
 
+All listed providers implement request-scoped credential validation and remote
+model enumeration. OpenAI-compatible profiles use their dedicated compatible
+model endpoint; Anthropic and Gemini use their native paginated model APIs.
+
 “Tested codec” currently means request/response fields are encoded or decoded
 by the provider adapter. Dedicated end-to-end tool-call and structured-output fixture cases
 remain required before the whole capability is declared fully Tested.

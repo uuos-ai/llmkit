@@ -42,6 +42,7 @@ so a slow local consumer applies bounded backpressure to upstream `Recv`.
 - `shutdown`
 - `cancel`
 - `list_capabilities`
+- `list_models`
 - `validate_credential`
 - `generate` (unary and streaming)
 - `embed`
@@ -51,6 +52,12 @@ request (or model metadata request for Gemini). Success means that the
 request-scoped credential was accepted for the selected provider endpoint;
 authentication, permission, model, throttling, and transport failures use the
 same normalized error envelope as generation.
+
+`list_models` performs host-triggered, credential-scoped provider catalog
+enumeration and returns a normalized page plus an opaque provider cursor. The
+SDK never refreshes catalogs in the background or selects a returned model.
+Hosts that use `catalog.ModelCache` must provide a non-secret scope identifier
+so results cannot cross credential or authorization boundaries.
 
 Provider credentials are request-scoped. v1 accepts Bearer credentials or an
 explicit allowlisted authentication header (`Authorization`, `x-api-key`, or

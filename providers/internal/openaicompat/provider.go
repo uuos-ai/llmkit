@@ -76,6 +76,13 @@ func (p *ChatProvider) ValidateCredential(ctx context.Context, call llmkit.Crede
 	return p.delegate.ValidateCredential(ctx, call)
 }
 
+func (p *ChatProvider) ListModels(ctx context.Context, call llmkit.ListModelsCall) (llmkit.ModelPage, error) {
+	if call.Target.Provider != p.id {
+		return llmkit.ModelPage{}, invalid(call.Target, "target does not match provider profile")
+	}
+	return p.delegate.ListModels(ctx, call)
+}
+
 func (p *ChatProvider) validateCall(call llmkit.GenerateCall) error {
 	if err := p.validateTarget(call.Target); err != nil {
 		return err
@@ -120,4 +127,5 @@ func invalid(target llmkit.Target, message string) error {
 var _ llmkit.Generator = (*ChatProvider)(nil)
 var _ llmkit.StreamGenerator = (*ChatProvider)(nil)
 var _ llmkit.CredentialValidator = (*ChatProvider)(nil)
+var _ llmkit.ModelLister = (*ChatProvider)(nil)
 var _ llmkit.Embedder = (*FullProvider)(nil)

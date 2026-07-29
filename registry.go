@@ -69,3 +69,12 @@ func (r *Registry) CredentialValidator(id ProviderID) (CredentialValidator, bool
 	validator, ok := provider.(CredentialValidator)
 	return validator, ok
 }
+
+func (r *Registry) ModelLister(id ProviderID) (ModelLister, bool) {
+	provider, ok := r.Get(id)
+	if !ok {
+		return nil, false
+	}
+	lister, ok := provider.(ModelLister)
+	return lister, ok
+}

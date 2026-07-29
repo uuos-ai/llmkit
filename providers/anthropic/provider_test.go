@@ -43,6 +43,29 @@ func TestValidateCredentialUsesModelsEndpoint(t *testing.T) {
 	}
 }
 
+func TestListModelsNormalizesPage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/models" || request.URL.Query().Get("after_id") != "previous" {
+			t.Fatalf("request URL = %s", request.URL.String())
+		}
+		_, _ = writer.Write([]byte(`{
+			"data":[{"id":"claude-a","display_name":"Claude A"}],
+			"has_more":true,"last_id":"claude-a"
+		}`))
+	}))
+	defer server.Close()
+	page, err := testProvider(t).ListModels(context.Background(), llmkit.ListModelsCall{
+		Target:     llmkit.Target{Provider: DefaultProviderID, Endpoint: server.URL},
+		Credential: testCredential(), Cursor: "previous", Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Models) != 1 || page.Models[0].DisplayName != "Claude A" || page.NextCursor != "claude-a" {
+		t.Fatalf("page = %#v", page)
+	}
+}
+
 func testCredential() llmkit.CredentialHandle {
 	return credentialFunc(func(_ context.Context, _ llmkit.Target, request *http.Request) error {
 		request.Header.Set("x-api-key", "test-secret")

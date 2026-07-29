@@ -11,7 +11,7 @@ the new-api, RelayKit, and TokenHub analysis.
 
 | Initial draft | Adopted API |
 |---|---|
-| `Adapter` | small `Provider` plus `Generator`, `StreamGenerator`, and `Embedder` capability interfaces |
+| `Adapter` | small `Provider` plus `Generator`, `StreamGenerator`, `Embedder`, `CredentialValidator`, and `ModelLister` capability interfaces |
 | `Request.Input any` | typed `GenerateRequest` and `EmbedCall` |
 | callback `Adapter.Stream` | pull-based `EventStream` with `Recv` and `Close` |
 | `StreamEvent.Delta any` | typed text, reasoning, tool, usage, and finish fields |
@@ -24,6 +24,10 @@ the new-api, RelayKit, and TokenHub analysis.
 
 - A call targets exactly one host-selected Provider, model, region, and endpoint.
 - Credentials are applied through a request-scoped `CredentialHandle`.
+- Credential validation and model enumeration are explicit, non-generation
+  operations; model pages use opaque provider cursors.
+- Catalog results are not shared across credentials unless the host supplies
+  the same non-secret authorization scope key.
 - Provider DTOs do not appear in the stable host-facing API.
 - `io.EOF` means a normally finalized stream; truncation is an error.
 - Unsupported or lossy protocol adaptations are explicit.

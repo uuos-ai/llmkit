@@ -21,6 +21,13 @@ type ValidateCredentialResponse struct {
 	Valid bool `json:"valid"`
 }
 
+type ListModelsRequest struct {
+	Target     llmkit.Target `json:"target"`
+	Credential Credential    `json:"credential"`
+	Cursor     string        `json:"cursor,omitempty"`
+	Limit      int           `json:"limit,omitempty"`
+}
+
 type GenerateRequest struct {
 	OperationID string                 `json:"operation_id,omitempty"`
 	Target      llmkit.Target          `json:"target"`

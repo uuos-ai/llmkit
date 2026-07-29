@@ -126,6 +126,61 @@ func (p *Provider) ValidateCredential(ctx context.Context, call llmkit.Credentia
 	return nil
 }
 
+func (p *Provider) ListModels(ctx context.Context, call llmkit.ListModelsCall) (llmkit.ModelPage, error) {
+	if call.Target.Provider != p.id {
+		return llmkit.ModelPage{}, invalidRequest(call.Target, "target provider does not match adapter")
+	}
+	if call.Limit < 0 || call.Limit > 1000 {
+		return llmkit.ModelPage{}, invalidRequest(call.Target, "model list limit must be between 1 and 1000")
+	}
+	endpoint, err := url.Parse(p.endpointFor(call.Target) + p.apiPathPrefix + "/models")
+	if err != nil {
+		return llmkit.ModelPage{}, invalidRequest(call.Target, "provider model endpoint is invalid")
+	}
+	query := endpoint.Query()
+	if call.Cursor != "" {
+		query.Set("after", call.Cursor)
+	}
+	if call.Limit > 0 {
+		query.Set("limit", fmt.Sprint(call.Limit))
+	}
+	endpoint.RawQuery = query.Encode()
+	request, err := transport.NewJSONRequest(
+		ctx, call.Target, call.Credential, http.MethodGet, endpoint.String(), nil, nil,
+	)
+	if err != nil {
+		return llmkit.ModelPage{}, err
+	}
+	response, err := p.transport.Do(call.Target, request)
+	if err != nil {
+		return llmkit.ModelPage{}, p.classifyError(call.Target, err)
+	}
+	var wire struct {
+		Data []struct {
+			ID      string `json:"id"`
+			OwnedBy string `json:"owned_by"`
+		} `json:"data"`
+		HasMore bool   `json:"has_more"`
+		LastID  string `json:"last_id"`
+	}
+	if err := p.transport.DecodeJSON(call.Target, response, &wire); err != nil {
+		return llmkit.ModelPage{}, err
+	}
+	page := llmkit.ModelPage{Provider: p.id, Models: make([]llmkit.ModelInfo, 0, len(wire.Data))}
+	for _, model := range wire.Data {
+		if model.ID != "" {
+			page.Models = append(page.Models, llmkit.ModelInfo{ID: llmkit.ModelID(model.ID), Owner: model.OwnedBy})
+		}
+	}
+	if wire.HasMore {
+		page.NextCursor = wire.LastID
+		if page.NextCursor == "" && len(page.Models) > 0 {
+			page.NextCursor = string(page.Models[len(page.Models)-1].ID)
+		}
+	}
+	return page, nil
+}
+
 func (p *Provider) Generate(ctx context.Context, call llmkit.GenerateCall) (llmkit.Response, error) {
 	if err := p.validateCall(call); err != nil {
 		return llmkit.Response{}, err
@@ -392,3 +447,4 @@ var _ llmkit.Generator = (*Provider)(nil)
 var _ llmkit.StreamGenerator = (*Provider)(nil)
 var _ llmkit.Embedder = (*Provider)(nil)
 var _ llmkit.CredentialValidator = (*Provider)(nil)
+var _ llmkit.ModelLister = (*Provider)(nil)

@@ -22,6 +22,7 @@ const (
 	MethodShutdown           Method = "shutdown"
 	MethodCancel             Method = "cancel"
 	MethodListCapabilities   Method = "list_capabilities"
+	MethodListModels         Method = "list_models"
 	MethodValidateCredential Method = "validate_credential"
 	MethodGenerate           Method = "generate"
 	MethodEmbed              Method = "embed"

@@ -95,6 +95,13 @@ func (p *Provider) ValidateCredential(ctx context.Context, call llmkit.Credentia
 	return p.delegate.ValidateCredential(ctx, call)
 }
 
+func (p *Provider) ListModels(ctx context.Context, call llmkit.ListModelsCall) (llmkit.ModelPage, error) {
+	if call.Target.Provider != p.id {
+		return llmkit.ModelPage{}, invalidTarget(call.Target)
+	}
+	return p.delegate.ListModels(ctx, call)
+}
+
 func (p *Provider) validateGenerate(call llmkit.GenerateCall) error {
 	if call.Target.Provider != p.id || call.Target.Model == "" {
 		return invalidTarget(call.Target)
@@ -120,3 +127,4 @@ var _ llmkit.Generator = (*Provider)(nil)
 var _ llmkit.StreamGenerator = (*Provider)(nil)
 var _ llmkit.Embedder = (*Provider)(nil)
 var _ llmkit.CredentialValidator = (*Provider)(nil)
+var _ llmkit.ModelLister = (*Provider)(nil)

@@ -60,6 +60,31 @@ func TestValidateCredentialNormalizesAuthenticationFailure(t *testing.T) {
 	})
 }
 
+func TestListModelsNormalizesPage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/models" || request.URL.Query().Get("after") != "previous" ||
+			request.URL.Query().Get("limit") != "2" {
+			t.Fatalf("request URL = %s", request.URL.String())
+		}
+		_, _ = writer.Write([]byte(`{
+			"data":[{"id":"gpt-a","owned_by":"openai"},{"id":"gpt-b"}],
+			"has_more":true,"last_id":"gpt-b"
+		}`))
+	}))
+	defer server.Close()
+	page, err := newTestProvider(t).ListModels(context.Background(), llmkit.ListModelsCall{
+		Target:     llmkit.Target{Provider: DefaultProviderID, Endpoint: server.URL},
+		Credential: bearerCredential(t), Cursor: "previous", Limit: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Models) != 2 || page.Models[0].ID != "gpt-a" ||
+		page.Models[0].Owner != "openai" || page.NextCursor != "gpt-b" {
+		t.Fatalf("page = %#v", page)
+	}
+}
+
 func bearerCredential(t *testing.T) llmkit.CredentialHandle {
 	t.Helper()
 	return credentialFunc(func(_ context.Context, _ llmkit.Target, request *http.Request) error {

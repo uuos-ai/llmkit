@@ -28,6 +28,7 @@ func Register(target *server.Server, config Config) error {
 	binding := &binder{registry: config.Registry, endpointPolicy: config.EndpointPolicy}
 	for method, handler := range map[protocol.Method]server.Handler{
 		protocol.MethodListCapabilities:   binding.capabilities,
+		protocol.MethodListModels:         binding.listModels,
 		protocol.MethodValidateCredential: binding.validateCredential,
 		protocol.MethodGenerate:           binding.generate,
 		protocol.MethodEmbed:              binding.embed,
@@ -37,6 +38,30 @@ func Register(target *server.Server, config Config) error {
 		}
 	}
 	return nil
+}
+
+func (b *binder) listModels(ctx context.Context, payload json.RawMessage) (any, error) {
+	var request protocol.ListModelsRequest
+	if err := decode(payload, &request); err != nil {
+		return nil, err
+	}
+	defer clear(request.Credential.Value)
+	if err := b.validateProviderTarget(request.Target); err != nil {
+		return nil, err
+	}
+	lister, ok := b.registry.ModelLister(request.Target.Provider)
+	if !ok {
+		return nil, unsupported(request.Target, "provider does not support model listing")
+	}
+	credential, err := credentialHandle(request.Target, request.Credential)
+	if err != nil {
+		return nil, err
+	}
+	defer credential.clear()
+	return lister.ListModels(ctx, llmkit.ListModelsCall{
+		Target: request.Target, Credential: credential,
+		Cursor: request.Cursor, Limit: request.Limit,
+	})
 }
 
 func (b *binder) validateCredential(ctx context.Context, payload json.RawMessage) (any, error) {
@@ -164,10 +189,23 @@ func (b *binder) embed(ctx context.Context, payload json.RawMessage) (any, error
 }
 
 func (b *binder) validateTarget(target llmkit.Target) error {
-	if target.Provider == "" || target.Model == "" {
+	if err := b.validateProviderTarget(target); err != nil {
+		return err
+	}
+	if target.Model == "" {
 		return &llmkit.ProviderError{
 			Provider: target.Provider, Model: target.Model,
-			Kind: llmkit.ErrorInvalidRequest, SafeMessage: "provider and model are required",
+			Kind: llmkit.ErrorInvalidRequest, SafeMessage: "model is required",
+		}
+	}
+	return nil
+}
+
+func (b *binder) validateProviderTarget(target llmkit.Target) error {
+	if target.Provider == "" {
+		return &llmkit.ProviderError{
+			Provider: target.Provider, Model: target.Model,
+			Kind: llmkit.ErrorInvalidRequest, SafeMessage: "provider is required",
 		}
 	}
 	if target.Endpoint == "" {

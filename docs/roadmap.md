@@ -35,7 +35,7 @@
 - [x] MiniMax Chat profile
 - [x] Tencent Hunyuan Chat/Embedding profile
 - [x] Provider capability discovery 缓存（host-triggered、TTL、并发合并）
-- [ ] 远端模型目录枚举与 Provider 特定刷新器
+- [x] 远端模型目录枚举、Provider 特定分页刷新器与凭据作用域隔离缓存
 
 ## Phase 4：可靠性工具
 

@@ -96,6 +96,64 @@ func (p *Provider) ValidateCredential(ctx context.Context, call llmkit.Credentia
 	return nil
 }
 
+func (p *Provider) ListModels(ctx context.Context, call llmkit.ListModelsCall) (llmkit.ModelPage, error) {
+	if call.Target.Provider != p.id {
+		return llmkit.ModelPage{}, invalidRequest(call.Target, "target provider does not match adapter")
+	}
+	if call.Limit < 0 || call.Limit > 1000 {
+		return llmkit.ModelPage{}, invalidRequest(call.Target, "model list limit must be between 1 and 1000")
+	}
+	endpoint := p.endpoint
+	if call.Target.Endpoint != "" {
+		endpoint = strings.TrimRight(call.Target.Endpoint, "/")
+	}
+	parsed, err := url.Parse(fmt.Sprintf("%s/%s/models", endpoint, p.apiVersion))
+	if err != nil {
+		return llmkit.ModelPage{}, invalidRequest(call.Target, "provider model endpoint is invalid")
+	}
+	query := parsed.Query()
+	if call.Cursor != "" {
+		query.Set("pageToken", call.Cursor)
+	}
+	if call.Limit > 0 {
+		query.Set("pageSize", fmt.Sprint(call.Limit))
+	}
+	parsed.RawQuery = query.Encode()
+	request, err := transport.NewJSONRequest(
+		ctx, call.Target, call.Credential, http.MethodGet, parsed.String(), nil, nil,
+	)
+	if err != nil {
+		return llmkit.ModelPage{}, err
+	}
+	response, err := p.transport.Do(call.Target, request)
+	if err != nil {
+		return llmkit.ModelPage{}, p.classifyError(call.Target, err)
+	}
+	var wire struct {
+		Models []struct {
+			Name        string `json:"name"`
+			DisplayName string `json:"displayName"`
+		} `json:"models"`
+		NextPageToken string `json:"nextPageToken"`
+	}
+	if err := p.transport.DecodeJSON(call.Target, response, &wire); err != nil {
+		return llmkit.ModelPage{}, err
+	}
+	page := llmkit.ModelPage{
+		Provider: p.id, NextCursor: wire.NextPageToken,
+		Models: make([]llmkit.ModelInfo, 0, len(wire.Models)),
+	}
+	for _, model := range wire.Models {
+		id := modelName(llmkit.ModelID(model.Name))
+		if id != "" {
+			page.Models = append(page.Models, llmkit.ModelInfo{
+				ID: llmkit.ModelID(id), DisplayName: model.DisplayName,
+			})
+		}
+	}
+	return page, nil
+}
+
 func (p *Provider) Generate(ctx context.Context, call llmkit.GenerateCall) (llmkit.Response, error) {
 	if err := p.validateCall(call); err != nil {
 		return llmkit.Response{}, err
@@ -308,3 +366,4 @@ var _ llmkit.Generator = (*Provider)(nil)
 var _ llmkit.StreamGenerator = (*Provider)(nil)
 var _ llmkit.Embedder = (*Provider)(nil)
 var _ llmkit.CredentialValidator = (*Provider)(nil)
+var _ llmkit.ModelLister = (*Provider)(nil)

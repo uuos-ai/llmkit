@@ -65,7 +65,7 @@ Provider/Registry API、请求级凭据、凭据验证、HTTP Transport、SSE pa
 - `retry` 仅对一个不可变 `Target` 做显式、有限次数重试。
 - `reliability` 产生不含内容与凭据的 attempt sample，并维护只读健康信号；它不拦截请求。
 - `failover` 只遍历宿主明确提供的目标列表，并要求宿主为每次失败提供继续决策。
-- `catalog` 对宿主触发的 capability discovery 做 TTL 缓存和并发请求合并，不自行拉取或选择模型。
+- `catalog` 对宿主触发的 capability/model discovery 做 TTL 缓存和并发请求合并；模型目录缓存要求宿主提供非密钥 scope，避免跨凭据可见性边界共享。
 
 ## License
 

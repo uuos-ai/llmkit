@@ -49,6 +49,17 @@ func (p *fakeProvider) ValidateCredential(ctx context.Context, call llmkit.Crede
 	return nil
 }
 
+func (p *fakeProvider) ListModels(ctx context.Context, call llmkit.ListModelsCall) (llmkit.ModelPage, error) {
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.invalid", nil)
+	if err := call.Credential.Apply(ctx, call.Target, request); err != nil {
+		return llmkit.ModelPage{}, err
+	}
+	p.header = request.Header.Get("Authorization")
+	return llmkit.ModelPage{
+		Provider: "fake", Models: []llmkit.ModelInfo{{ID: "model-a"}}, NextCursor: "next",
+	}, nil
+}
+
 func (p *fakeProvider) Stream(context.Context, llmkit.GenerateCall) (llmkit.EventStream, error) {
 	return &fakeStream{events: []llmkit.StreamEvent{
 		{Type: llmkit.EventTextDelta, Text: "hello"},
@@ -141,6 +152,25 @@ func TestValidateCredentialUsesRequestScopedSecret(t *testing.T) {
 	if provider.header != "Bearer validation-secret" ||
 		!result.(protocol.ValidateCredentialResponse).Valid {
 		t.Fatalf("header=%q result=%#v", provider.header, result)
+	}
+}
+
+func TestListModelsDoesNotRequirePreselectedModel(t *testing.T) {
+	binding, provider := testBinder(t)
+	payload, err := json.Marshal(protocol.ListModelsRequest{
+		Target: llmkit.Target{Provider: "fake"}, Cursor: "cursor", Limit: 10,
+		Credential: protocol.Credential{Type: "bearer", Value: []byte("catalog-secret")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := binding.listModels(context.Background(), payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := result.(llmkit.ModelPage)
+	if provider.header != "Bearer catalog-secret" || len(page.Models) != 1 || page.NextCursor != "next" {
+		t.Fatalf("header=%q page=%#v", provider.header, page)
 	}
 }
 

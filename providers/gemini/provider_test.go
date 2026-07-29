@@ -43,6 +43,30 @@ func TestValidateCredentialUsesModelEndpoint(t *testing.T) {
 	}
 }
 
+func TestListModelsNormalizesPage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1beta/models" || request.URL.Query().Get("pageToken") != "previous" ||
+			request.URL.Query().Get("pageSize") != "5" {
+			t.Fatalf("request URL = %s", request.URL.String())
+		}
+		_, _ = writer.Write([]byte(`{
+			"models":[{"name":"models/gemini-a","displayName":"Gemini A"}],
+			"nextPageToken":"next"
+		}`))
+	}))
+	defer server.Close()
+	page, err := testProvider(t).ListModels(context.Background(), llmkit.ListModelsCall{
+		Target:     llmkit.Target{Provider: DefaultProviderID, Endpoint: server.URL},
+		Credential: testCredential(), Cursor: "previous", Limit: 5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Models) != 1 || page.Models[0].ID != "gemini-a" || page.NextCursor != "next" {
+		t.Fatalf("page = %#v", page)
+	}
+}
+
 func testCredential() llmkit.CredentialHandle {
 	return credentialFunc(func(_ context.Context, _ llmkit.Target, request *http.Request) error {
 		request.Header.Set("x-goog-api-key", "test-secret")

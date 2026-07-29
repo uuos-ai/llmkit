@@ -83,6 +83,14 @@ type CredentialValidator interface {
 	ValidateCredential(ctx context.Context, call CredentialCall) error
 }
 
+// ModelLister enumerates models only when explicitly requested by the host.
+// Pagination is provider-owned; llmkit never refreshes catalogs in the
+// background or selects a model from the result.
+type ModelLister interface {
+	Provider
+	ListModels(ctx context.Context, call ListModelsCall) (ModelPage, error)
+}
+
 // EventStream owns one upstream response body. Recv returns io.EOF only after
 // a normal, finalized stream. Truncation and provider-side failures are errors.
 type EventStream interface {
@@ -191,6 +199,25 @@ type EmbedCall struct {
 type CredentialCall struct {
 	Target     Target
 	Credential CredentialHandle
+}
+
+type ListModelsCall struct {
+	Target     Target
+	Credential CredentialHandle
+	Cursor     string
+	Limit      int
+}
+
+type ModelInfo struct {
+	ID          ModelID `json:"id"`
+	DisplayName string  `json:"display_name,omitempty"`
+	Owner       string  `json:"owner,omitempty"`
+}
+
+type ModelPage struct {
+	Provider   ProviderID  `json:"provider"`
+	Models     []ModelInfo `json:"models"`
+	NextCursor string      `json:"next_cursor,omitempty"`
 }
 
 type EmbedResponse struct {

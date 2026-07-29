@@ -184,7 +184,7 @@ func (s *Server) handleHandshake(request protocol.Request, writer *lockedWriter)
 		BuildID: s.build.BuildID,
 		Methods: []protocol.Method{
 			protocol.MethodHandshake, protocol.MethodHealth, protocol.MethodShutdown,
-			protocol.MethodCancel, protocol.MethodListCapabilities,
+			protocol.MethodCancel, protocol.MethodListCapabilities, protocol.MethodListModels,
 			protocol.MethodValidateCredential, protocol.MethodGenerate, protocol.MethodEmbed,
 		},
 	}
