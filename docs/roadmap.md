@@ -48,7 +48,7 @@
 ## Phase 5：非 Go 宿主 sidecar
 
 - [x] 定义 sidecar v1 协议、framing、事件顺序和兼容基线
-- [ ] 实现 session handshake、Unix domain socket 和 Windows named pipe（Unix 与父进程退出监控已完成）
+- [x] 实现 session handshake、Unix domain socket、Windows named pipe 与父进程退出监控
 - [ ] 实现 Generate、Embed、ValidateCredential、Cancel、Health 和 Shutdown（ValidateCredential 待定义）
 - [x] 实现 streaming 背压、context cancellation 和消息大小限制
 - [x] 提供无第三方运行时依赖的 Rust Unix socket 测试客户端

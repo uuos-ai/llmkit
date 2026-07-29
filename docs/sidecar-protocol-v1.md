@@ -5,6 +5,8 @@ Status: implementation baseline (`1.0`).
 ## Transport and framing
 
 - macOS/Linux use an absolute Unix domain socket path created with mode `0600`.
+- Windows uses a local `\\.\pipe\NAME` named pipe whose ACL grants access only
+  to the user running the sidecar. Remote pipe clients are rejected.
 - The host passes a random session key of at least 32 bytes through sidecar
   standard input, terminated by one newline. The key is not accepted through a
   flag, environment variable, or file.
@@ -54,10 +56,9 @@ policy and therefore uses only adapter-owned official defaults.
 
 ## Current platform boundary
 
-The command currently implements the Unix-domain-socket runtime, requires a
-host `--parent-pid`, and exits when that process disappears. It also
-cross-compiles as a Windows binary, but Windows named-pipe listening is not yet
-wired. ValidateCredential semantics, packaging attestations, and signed release
+The command implements Unix-domain-socket and Windows named-pipe runtimes,
+requires a host `--parent-pid`, and exits when that process disappears.
+ValidateCredential semantics, packaging attestations, and signed release
 artifacts remain part of the sidecar acceptance work.
 
 The dependency-free Rust framing/handshake example lives in

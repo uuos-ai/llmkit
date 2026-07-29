@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,21 +44,13 @@ func main() {
 }
 
 func run() error {
-	var socketPath string
+	var localAddress string
 	var parentPID int
-	flag.StringVar(&socketPath, "socket", "", "absolute Unix domain socket path")
+	flag.StringVar(&localAddress, "socket", "", "Unix socket path or Windows named pipe address")
 	flag.IntVar(&parentPID, "parent-pid", 0, "host process ID to supervise")
 	flag.Parse()
-	if socketPath == "" || !filepath.IsAbs(socketPath) {
-		return errors.New("llmkit-sidecar: --socket must be an absolute path")
-	}
 	if parentPID <= 0 || parentPID == os.Getpid() {
 		return errors.New("llmkit-sidecar: --parent-pid must identify the host process")
-	}
-	if _, err := os.Lstat(socketPath); err == nil {
-		return errors.New("llmkit-sidecar: socket path already exists")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return errors.New("llmkit-sidecar: socket path cannot be inspected")
 	}
 
 	sessionKey, err := readSessionKey(os.Stdin)
@@ -68,15 +59,11 @@ func run() error {
 	}
 	defer clear(sessionKey)
 
-	listener, err := net.Listen("unix", socketPath)
+	listener, cleanupListener, err := listenLocal(localAddress)
 	if err != nil {
-		return fmt.Errorf("llmkit-sidecar: listen failed: %w", err)
+		return err
 	}
-	defer listener.Close()
-	defer os.Remove(socketPath)
-	if err := os.Chmod(socketPath, 0o600); err != nil {
-		return errors.New("llmkit-sidecar: socket permissions could not be restricted")
-	}
+	defer cleanupListener()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
