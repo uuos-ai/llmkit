@@ -102,6 +102,18 @@ func TestCanceledRequestIsNotRetryable(t *testing.T) {
 	}
 }
 
+func TestDeadlineFaultIsNormalizedAndRetryable(t *testing.T) {
+	request, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.test", nil)
+	client := New(Config{HTTPClient: doerFunc(func(*http.Request) (*http.Response, error) {
+		return nil, context.DeadlineExceeded
+	})})
+	_, err := client.Do(llmkit.Target{Provider: "example", Model: "model"}, request)
+	var providerErr *llmkit.ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Kind != llmkit.ErrorTimeout || !providerErr.Retryable {
+		t.Fatalf("error = %#v", err)
+	}
+}
+
 func TestParseRetryAfter(t *testing.T) {
 	now := time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC)
 	if got := ParseRetryAfter("3", now); got != 3*time.Second {

@@ -43,7 +43,7 @@
 - [x] 显式同目标 retry helper
 - [x] Health sample、circuit-breaker signal 和 metrics hooks
 - [x] 宿主显式控制的 failover 辅助包
-- [ ] 性能、故障注入和兼容性报告
+- [x] 性能基线、故障注入和兼容性报告
 
 ## Phase 5：非 Go 宿主 sidecar
 
@@ -54,4 +54,4 @@
 - [x] 提供无第三方运行时依赖的 Rust Unix socket 测试客户端
 - [x] 建立 macOS arm64/amd64、Windows amd64 和 Linux amd64 构建
 - [x] 发布 Sigstore/GitHub attestations、checksums、SBOM 和 release manifest
-- [ ] 完成安全、fuzz、race、协议兼容及端到端测试
+- [x] 完成自动化安全、fuzz、race、协议兼容及本地进程端到端测试

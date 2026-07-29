@@ -48,3 +48,20 @@ func FuzzCodecReadRequest(f *testing.F) {
 		_, _ = NewCodec(bytes.NewReader(data), nil, 4096).ReadRequest()
 	})
 }
+
+func BenchmarkCodecRoundTrip(b *testing.B) {
+	request := Request{
+		Version: Version, SessionKey: strings.Repeat("x", 32),
+		RequestID: "benchmark", Method: MethodHealth,
+	}
+	b.ReportAllocs()
+	for range b.N {
+		var stream bytes.Buffer
+		if err := NewCodec(nil, &stream, 4096).WriteRequest(request); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := NewCodec(&stream, nil, 4096).ReadRequest(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
