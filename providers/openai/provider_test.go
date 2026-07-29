@@ -20,6 +20,46 @@ func (f credentialFunc) Apply(ctx context.Context, target llmkit.Target, request
 	return f(ctx, target, request)
 }
 
+func TestValidateCredentialUsesModelsEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/models" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer test-secret" {
+			t.Fatal("credential header was not applied")
+		}
+		_, _ = writer.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+	provider := newTestProvider(t)
+	err := provider.ValidateCredential(context.Background(), llmkit.CredentialCall{
+		Target:     llmkit.Target{Provider: DefaultProviderID, Model: "model", Endpoint: server.URL},
+		Credential: bearerCredential(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateCredentialNormalizesAuthenticationFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusUnauthorized)
+		_, _ = writer.Write([]byte(`{"error":{"code":"invalid_api_key"}}`))
+	}))
+	defer server.Close()
+	provider := newTestProvider(t)
+	conformance.RunError(t, conformance.ErrorCase{
+		Name: "credential_authentication",
+		Kind: llmkit.ErrorAuthentication, StatusCode: http.StatusUnauthorized,
+		Invoke: func(ctx context.Context) error {
+			return provider.ValidateCredential(ctx, llmkit.CredentialCall{
+				Target:     llmkit.Target{Provider: DefaultProviderID, Model: "model", Endpoint: server.URL},
+				Credential: bearerCredential(t),
+			})
+		},
+	})
+}
+
 func bearerCredential(t *testing.T) llmkit.CredentialHandle {
 	t.Helper()
 	return credentialFunc(func(_ context.Context, _ llmkit.Target, request *http.Request) error {

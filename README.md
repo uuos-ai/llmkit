@@ -41,23 +41,15 @@ Provider 覆盖规划：
 - Alibaba Cloud DashScope / Qwen OpenAI-compatible（已实现）
 - MiniMax、Zhipu GLM、Volcengine Ark、Tencent Hunyuan profiles（已实现）
 - Moonshot/Kimi Chat（已实现）
-- DeepSeek
-- Alibaba Cloud DashScope / Qwen
-- Volcengine Ark / Doubao
-- Zhipu GLM
-- Moonshot Kimi
-- MiniMax
-- Tencent Hunyuan
 
 优先能力：Chat、Responses、Embedding、流式输出、Tool Calling、Structured Output 和可信 usage。
 
 ## 当前状态
 
-项目处于首批 Provider 落地阶段。当前已建立类型化
-Provider/Registry API、请求级凭据、HTTP Transport、SSE parser、
-显式同目标 retry 和 conformance harness，并完成 OpenAI Chat
-Completions/Responses、Anthropic Messages、Google Gemini
-generateContent/embedding 的独立离线协议合同测试。
+项目已完成首批 Provider SDK 与 sidecar 协议基线。当前包括类型化
+Provider/Registry API、请求级凭据、凭据验证、HTTP Transport、SSE parser、
+显式同目标 retry、conformance harness，以及国内外首批 Provider 的独立
+离线协议合同测试。
 
 - [分析索引](./docs/README.md)
 - [new-api relay/relaykit 分析](./docs/research/new-api-relay-relaykit-analysis.md)

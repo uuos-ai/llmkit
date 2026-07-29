@@ -77,6 +77,13 @@ func (p *Provider) Stream(ctx context.Context, call llmkit.GenerateCall) (llmkit
 	return p.delegate.Stream(ctx, prepared)
 }
 
+func (p *Provider) ValidateCredential(ctx context.Context, call llmkit.CredentialCall) error {
+	if call.Target.Provider != p.id || call.Target.Model == "" {
+		return invalidTarget(call.Target)
+	}
+	return p.delegate.ValidateCredential(ctx, call)
+}
+
 func (p *Provider) prepare(call llmkit.GenerateCall) (llmkit.GenerateCall, error) {
 	if call.Target.Provider != p.id || call.Target.Model == "" {
 		return llmkit.GenerateCall{}, invalidTarget(call.Target)
@@ -103,3 +110,4 @@ func invalidTarget(target llmkit.Target) error {
 
 var _ llmkit.Generator = (*Provider)(nil)
 var _ llmkit.StreamGenerator = (*Provider)(nil)
+var _ llmkit.CredentialValidator = (*Provider)(nil)

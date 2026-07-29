@@ -12,6 +12,15 @@ type CapabilitiesRequest struct {
 	Target llmkit.Target `json:"target"`
 }
 
+type ValidateCredentialRequest struct {
+	Target     llmkit.Target `json:"target"`
+	Credential Credential    `json:"credential"`
+}
+
+type ValidateCredentialResponse struct {
+	Valid bool `json:"valid"`
+}
+
 type GenerateRequest struct {
 	OperationID string                 `json:"operation_id,omitempty"`
 	Target      llmkit.Target          `json:"target"`

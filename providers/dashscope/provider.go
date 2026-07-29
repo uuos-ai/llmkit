@@ -88,6 +88,13 @@ func (p *Provider) Embed(ctx context.Context, call llmkit.EmbedCall) (llmkit.Emb
 	return p.delegate.Embed(ctx, call)
 }
 
+func (p *Provider) ValidateCredential(ctx context.Context, call llmkit.CredentialCall) error {
+	if call.Target.Provider != p.id || call.Target.Model == "" {
+		return invalidTarget(call.Target)
+	}
+	return p.delegate.ValidateCredential(ctx, call)
+}
+
 func (p *Provider) validateGenerate(call llmkit.GenerateCall) error {
 	if call.Target.Provider != p.id || call.Target.Model == "" {
 		return invalidTarget(call.Target)
@@ -112,3 +119,4 @@ func invalidTarget(target llmkit.Target) error {
 var _ llmkit.Generator = (*Provider)(nil)
 var _ llmkit.StreamGenerator = (*Provider)(nil)
 var _ llmkit.Embedder = (*Provider)(nil)
+var _ llmkit.CredentialValidator = (*Provider)(nil)

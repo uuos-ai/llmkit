@@ -49,7 +49,7 @@
 
 - [x] 定义 sidecar v1 协议、framing、事件顺序和兼容基线
 - [x] 实现 session handshake、Unix domain socket、Windows named pipe 与父进程退出监控
-- [ ] 实现 Generate、Embed、ValidateCredential、Cancel、Health 和 Shutdown（ValidateCredential 待定义）
+- [x] 实现 Generate、Embed、ValidateCredential、Cancel、Health 和 Shutdown
 - [x] 实现 streaming 背压、context cancellation 和消息大小限制
 - [x] 提供无第三方运行时依赖的 Rust Unix socket 测试客户端
 - [ ] 建立 macOS arm64/amd64、Windows amd64 和 Linux amd64 构建

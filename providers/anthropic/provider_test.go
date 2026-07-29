@@ -19,6 +19,30 @@ func (f credentialFunc) Apply(ctx context.Context, target llmkit.Target, request
 	return f(ctx, target, request)
 }
 
+func TestValidateCredentialUsesModelsEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/models" || request.URL.Query().Get("limit") != "1" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.String())
+		}
+		if request.Header.Get("x-api-key") != "test-secret" || request.Header.Get("anthropic-version") == "" {
+			t.Fatal("required Anthropic headers were not applied")
+		}
+		_, _ = writer.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+	provider, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = provider.ValidateCredential(context.Background(), llmkit.CredentialCall{
+		Target:     llmkit.Target{Provider: DefaultProviderID, Model: "claude-test", Endpoint: server.URL},
+		Credential: testCredential(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func testCredential() llmkit.CredentialHandle {
 	return credentialFunc(func(_ context.Context, _ llmkit.Target, request *http.Request) error {
 		request.Header.Set("x-api-key", "test-secret")

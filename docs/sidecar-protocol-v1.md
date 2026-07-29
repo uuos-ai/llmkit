@@ -42,8 +42,15 @@ so a slow local consumer applies bounded backpressure to upstream `Recv`.
 - `shutdown`
 - `cancel`
 - `list_capabilities`
+- `validate_credential`
 - `generate` (unary and streaming)
 - `embed`
+
+`validate_credential` performs the provider's non-generation model discovery
+request (or model metadata request for Gemini). Success means that the
+request-scoped credential was accepted for the selected provider endpoint;
+authentication, permission, model, throttling, and transport failures use the
+same normalized error envelope as generation.
 
 Provider credentials are request-scoped. v1 accepts Bearer credentials or an
 explicit allowlisted authentication header (`Authorization`, `x-api-key`, or
@@ -58,8 +65,8 @@ policy and therefore uses only adapter-owned official defaults.
 
 The command implements Unix-domain-socket and Windows named-pipe runtimes,
 requires a host `--parent-pid`, and exits when that process disappears.
-ValidateCredential semantics, packaging attestations, and signed release
-artifacts remain part of the sidecar acceptance work.
+Packaging attestations and signed release artifacts remain part of the sidecar
+acceptance work.
 
 The dependency-free Rust framing/handshake example lives in
 `examples/rust-sidecar-client` and is intended for protocol smoke tests rather

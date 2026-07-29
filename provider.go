@@ -76,6 +76,13 @@ type Embedder interface {
 	Embed(ctx context.Context, call EmbedCall) (EmbedResponse, error)
 }
 
+// CredentialValidator verifies that one request-scoped credential is accepted
+// by the selected provider without performing a billable generation.
+type CredentialValidator interface {
+	Provider
+	ValidateCredential(ctx context.Context, call CredentialCall) error
+}
+
 // EventStream owns one upstream response body. Recv returns io.EOF only after
 // a normal, finalized stream. Truncation and provider-side failures are errors.
 type EventStream interface {
@@ -179,6 +186,11 @@ type EmbedCall struct {
 	Input       []string
 	Dimensions  *int
 	Metadata    map[string]string
+}
+
+type CredentialCall struct {
+	Target     Target
+	Credential CredentialHandle
 }
 
 type EmbedResponse struct {

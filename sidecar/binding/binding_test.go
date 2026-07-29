@@ -40,6 +40,15 @@ func (p *fakeProvider) Embed(context.Context, llmkit.EmbedCall) (llmkit.EmbedRes
 	return llmkit.EmbedResponse{Vectors: [][]float32{{1, 2}}}, nil
 }
 
+func (p *fakeProvider) ValidateCredential(ctx context.Context, call llmkit.CredentialCall) error {
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.invalid", nil)
+	if err := call.Credential.Apply(ctx, call.Target, request); err != nil {
+		return err
+	}
+	p.header = request.Header.Get("Authorization")
+	return nil
+}
+
 func (p *fakeProvider) Stream(context.Context, llmkit.GenerateCall) (llmkit.EventStream, error) {
 	return &fakeStream{events: []llmkit.StreamEvent{
 		{Type: llmkit.EventTextDelta, Text: "hello"},
@@ -113,6 +122,25 @@ func TestCustomEndpointDeniedByDefault(t *testing.T) {
 	providerErr, ok := err.(*llmkit.ProviderError)
 	if !ok || providerErr.Kind != llmkit.ErrorPermission {
 		t.Fatalf("error = %#v", err)
+	}
+}
+
+func TestValidateCredentialUsesRequestScopedSecret(t *testing.T) {
+	binding, provider := testBinder(t)
+	payload, err := json.Marshal(protocol.ValidateCredentialRequest{
+		Target:     llmkit.Target{Provider: "fake", Model: "model"},
+		Credential: protocol.Credential{Type: "bearer", Value: []byte("validation-secret")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := binding.validateCredential(context.Background(), payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.header != "Bearer validation-secret" ||
+		!result.(protocol.ValidateCredentialResponse).Valid {
+		t.Fatalf("header=%q result=%#v", provider.header, result)
 	}
 }
 

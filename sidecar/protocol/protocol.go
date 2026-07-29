@@ -17,13 +17,14 @@ const (
 type Method string
 
 const (
-	MethodHandshake        Method = "handshake"
-	MethodHealth           Method = "health"
-	MethodShutdown         Method = "shutdown"
-	MethodCancel           Method = "cancel"
-	MethodListCapabilities Method = "list_capabilities"
-	MethodGenerate         Method = "generate"
-	MethodEmbed            Method = "embed"
+	MethodHandshake          Method = "handshake"
+	MethodHealth             Method = "health"
+	MethodShutdown           Method = "shutdown"
+	MethodCancel             Method = "cancel"
+	MethodListCapabilities   Method = "list_capabilities"
+	MethodValidateCredential Method = "validate_credential"
+	MethodGenerate           Method = "generate"
+	MethodEmbed              Method = "embed"
 )
 
 type MessageType string

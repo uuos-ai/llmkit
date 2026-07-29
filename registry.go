@@ -60,3 +60,12 @@ func (r *Registry) Embedder(id ProviderID) (Embedder, bool) {
 	embedder, ok := provider.(Embedder)
 	return embedder, ok
 }
+
+func (r *Registry) CredentialValidator(id ProviderID) (CredentialValidator, bool) {
+	provider, ok := r.Get(id)
+	if !ok {
+		return nil, false
+	}
+	validator, ok := provider.(CredentialValidator)
+	return validator, ok
+}

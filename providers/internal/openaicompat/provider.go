@@ -69,6 +69,13 @@ func (p *ChatProvider) Stream(ctx context.Context, call llmkit.GenerateCall) (ll
 	return p.delegate.Stream(ctx, call)
 }
 
+func (p *ChatProvider) ValidateCredential(ctx context.Context, call llmkit.CredentialCall) error {
+	if err := p.validateTarget(call.Target); err != nil {
+		return err
+	}
+	return p.delegate.ValidateCredential(ctx, call)
+}
+
 func (p *ChatProvider) validateCall(call llmkit.GenerateCall) error {
 	if err := p.validateTarget(call.Target); err != nil {
 		return err
@@ -112,4 +119,5 @@ func invalid(target llmkit.Target, message string) error {
 
 var _ llmkit.Generator = (*ChatProvider)(nil)
 var _ llmkit.StreamGenerator = (*ChatProvider)(nil)
+var _ llmkit.CredentialValidator = (*ChatProvider)(nil)
 var _ llmkit.Embedder = (*FullProvider)(nil)

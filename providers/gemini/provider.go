@@ -73,6 +73,29 @@ func (p *Provider) Capabilities(_ context.Context, target llmkit.Target) (llmkit
 	}}, nil
 }
 
+func (p *Provider) ValidateCredential(ctx context.Context, call llmkit.CredentialCall) error {
+	if err := p.validateTarget(call.Target); err != nil {
+		return err
+	}
+	endpoint := p.endpoint
+	if call.Target.Endpoint != "" {
+		endpoint = strings.TrimRight(call.Target.Endpoint, "/")
+	}
+	path := fmt.Sprintf("%s/%s/models/%s", endpoint, p.apiVersion, url.PathEscape(modelName(call.Target.Model)))
+	request, err := transport.NewJSONRequest(
+		ctx, call.Target, call.Credential, http.MethodGet, path, nil, nil,
+	)
+	if err != nil {
+		return err
+	}
+	response, err := p.transport.Do(call.Target, request)
+	if err != nil {
+		return p.classifyError(call.Target, err)
+	}
+	_ = response.Body.Close()
+	return nil
+}
+
 func (p *Provider) Generate(ctx context.Context, call llmkit.GenerateCall) (llmkit.Response, error) {
 	if err := p.validateCall(call); err != nil {
 		return llmkit.Response{}, err
@@ -284,3 +307,4 @@ func safeMessage(kind llmkit.ErrorKind) string {
 var _ llmkit.Generator = (*Provider)(nil)
 var _ llmkit.StreamGenerator = (*Provider)(nil)
 var _ llmkit.Embedder = (*Provider)(nil)
+var _ llmkit.CredentialValidator = (*Provider)(nil)

@@ -185,7 +185,7 @@ func (s *Server) handleHandshake(request protocol.Request, writer *lockedWriter)
 		Methods: []protocol.Method{
 			protocol.MethodHandshake, protocol.MethodHealth, protocol.MethodShutdown,
 			protocol.MethodCancel, protocol.MethodListCapabilities,
-			protocol.MethodGenerate, protocol.MethodEmbed,
+			protocol.MethodValidateCredential, protocol.MethodGenerate, protocol.MethodEmbed,
 		},
 	}
 	return writer.result(request.RequestID, payload)

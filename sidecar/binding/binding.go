@@ -27,15 +27,42 @@ func Register(target *server.Server, config Config) error {
 	}
 	binding := &binder{registry: config.Registry, endpointPolicy: config.EndpointPolicy}
 	for method, handler := range map[protocol.Method]server.Handler{
-		protocol.MethodListCapabilities: binding.capabilities,
-		protocol.MethodGenerate:         binding.generate,
-		protocol.MethodEmbed:            binding.embed,
+		protocol.MethodListCapabilities:   binding.capabilities,
+		protocol.MethodValidateCredential: binding.validateCredential,
+		protocol.MethodGenerate:           binding.generate,
+		protocol.MethodEmbed:              binding.embed,
 	} {
 		if err := target.Register(method, handler); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (b *binder) validateCredential(ctx context.Context, payload json.RawMessage) (any, error) {
+	var request protocol.ValidateCredentialRequest
+	if err := decode(payload, &request); err != nil {
+		return nil, err
+	}
+	defer clear(request.Credential.Value)
+	if err := b.validateTarget(request.Target); err != nil {
+		return nil, err
+	}
+	validator, ok := b.registry.CredentialValidator(request.Target.Provider)
+	if !ok {
+		return nil, unsupported(request.Target, "provider does not support credential validation")
+	}
+	credential, err := credentialHandle(request.Target, request.Credential)
+	if err != nil {
+		return nil, err
+	}
+	defer credential.clear()
+	if err := validator.ValidateCredential(ctx, llmkit.CredentialCall{
+		Target: request.Target, Credential: credential,
+	}); err != nil {
+		return nil, err
+	}
+	return protocol.ValidateCredentialResponse{Valid: true}, nil
 }
 
 type binder struct {
