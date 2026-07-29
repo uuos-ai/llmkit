@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -22,6 +23,7 @@ import (
 	"github.com/uuos-ai/llmkit/providers/gemini"
 	"github.com/uuos-ai/llmkit/providers/hunyuan"
 	"github.com/uuos-ai/llmkit/providers/minimax"
+	"github.com/uuos-ai/llmkit/providers/moonshot"
 	"github.com/uuos-ai/llmkit/providers/openai"
 	"github.com/uuos-ai/llmkit/providers/volcengine"
 	"github.com/uuos-ai/llmkit/providers/zhipu"
@@ -44,10 +46,15 @@ func main() {
 
 func run() error {
 	var socketPath string
+	var parentPID int
 	flag.StringVar(&socketPath, "socket", "", "absolute Unix domain socket path")
+	flag.IntVar(&parentPID, "parent-pid", 0, "host process ID to supervise")
 	flag.Parse()
 	if socketPath == "" || !filepath.IsAbs(socketPath) {
 		return errors.New("llmkit-sidecar: --socket must be an absolute path")
+	}
+	if parentPID <= 0 || parentPID == os.Getpid() {
+		return errors.New("llmkit-sidecar: --parent-pid must identify the host process")
 	}
 	if _, err := os.Lstat(socketPath); err == nil {
 		return errors.New("llmkit-sidecar: socket path already exists")
@@ -77,6 +84,12 @@ func run() error {
 		stop()
 		_ = listener.Close()
 	})
+	go func() {
+		if watchErr := watchParent(ctx, parentPID); watchErr != nil && ctx.Err() == nil {
+			fmt.Fprintln(os.Stderr, "llmkit-sidecar: host process monitor stopped: pid="+strconv.Itoa(parentPID))
+		}
+		shutdown()
+	}()
 	service, err := server.New(server.Config{
 		SessionKey: sessionKey,
 		Build: server.BuildInfo{
@@ -143,6 +156,7 @@ func defaultRegistry() (*llmkit.Registry, error) {
 		func() (llmkit.Provider, error) { return zhipu.New(zhipu.Config{}) },
 		func() (llmkit.Provider, error) { return volcengine.New(volcengine.Config{}) },
 		func() (llmkit.Provider, error) { return hunyuan.New(hunyuan.Config{}) },
+		func() (llmkit.Provider, error) { return moonshot.New(moonshot.Config{}) },
 	}
 	for _, construct := range constructors {
 		provider, err := construct()

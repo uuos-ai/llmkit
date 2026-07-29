@@ -54,8 +54,12 @@ policy and therefore uses only adapter-owned official defaults.
 
 ## Current platform boundary
 
-The command currently implements the Unix-domain-socket runtime and also
+The command currently implements the Unix-domain-socket runtime, requires a
+host `--parent-pid`, and exits when that process disappears. It also
 cross-compiles as a Windows binary, but Windows named-pipe listening is not yet
-wired. Parent-process death monitoring, ValidateCredential semantics, the Rust
-test client, packaging attestations, and signed release artifacts remain part
-of the sidecar acceptance work.
+wired. ValidateCredential semantics, packaging attestations, and signed release
+artifacts remain part of the sidecar acceptance work.
+
+The dependency-free Rust framing/handshake example lives in
+`examples/rust-sidecar-client` and is intended for protocol smoke tests rather
+than as a production client library.

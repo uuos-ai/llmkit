@@ -16,7 +16,7 @@ Status values:
 | Alibaba DashScope/Qwen OpenAI-compatible | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested via shared codec |
 | Volcengine Ark/Doubao Responses | Tested codec | Tested codec | Not exposed | Tested codec | Tested codec | Tested codec | Tested codec | Tested via shared codec |
 | Zhipu GLM Chat | Tested codec | Tested codec | Not exposed | Tested codec | Not declared | Tested codec | Tested codec | Tested via shared codec |
-| Moonshot/Kimi | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+| Moonshot/Kimi Chat | Tested | Tested codec | Not exposed | Tested codec | Tested codec | Tested codec | Tested | Tested via shared codec |
 | MiniMax Chat | Tested | Tested codec | Not exposed | Tested codec | Not declared | Tested codec | Tested | Tested via shared codec |
 | Tencent Hunyuan Chat/Embedding | Tested codec | Tested codec | Tested | Tested codec | Not declared | Not declared | Tested codec | Tested via shared codec |
 
@@ -93,3 +93,5 @@ remain required before the whole capability is declared fully Tested.
   [Zhipu OpenAI compatibility](https://docs.bigmodel.cn/cn/guide/develop/openai/introduction),
   [Volcengine Ark Responses](https://www.volcengine.com/docs/82379/1795150), and
   [Tencent Hunyuan compatibility](https://cloud.tencent.com/document/product/1729/111007).
+- Moonshot/Kimi reference (retrieved 2026-07-29):
+  [Kimi Chat API](https://platform.kimi.ai/docs/api/chat).

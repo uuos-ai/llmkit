@@ -208,6 +208,7 @@ type usageDTO struct {
 	TotalTokens      int64 `json:"total_tokens"`
 	InputTokens      int64 `json:"input_tokens"`
 	OutputTokens     int64 `json:"output_tokens"`
+	CachedTokens     int64 `json:"cached_tokens"`
 	PromptDetails    struct {
 		CachedTokens int64 `json:"cached_tokens"`
 	} `json:"prompt_tokens_details"`
@@ -241,6 +242,9 @@ func normalizeUsage(value *usageDTO) llmkit.Usage {
 	cached := value.InputDetails.CachedTokens
 	if cached == 0 {
 		cached = value.PromptDetails.CachedTokens
+	}
+	if cached == 0 {
+		cached = value.CachedTokens
 	}
 	reasoning := value.OutputDetails.ReasoningTokens
 	if reasoning == 0 {

@@ -22,7 +22,7 @@
 ## Phase 2：首批 Provider
 
 - [x] OpenAI native Chat Completions / Responses
-- [ ] OpenAI-compatible profiles（DeepSeek、DashScope 已完成；Moonshot 等待）
+- [x] OpenAI-compatible profiles（DeepSeek、DashScope、Moonshot 及国内首批厂商）
 - [x] Anthropic Claude
 - [x] Google Gemini
 - [x] Alibaba DashScope / Qwen
@@ -48,10 +48,10 @@
 ## Phase 5：非 Go 宿主 sidecar
 
 - [x] 定义 sidecar v1 协议、framing、事件顺序和兼容基线
-- [ ] 实现 session handshake、Unix domain socket 和 Windows named pipe（Unix 已完成）
+- [ ] 实现 session handshake、Unix domain socket 和 Windows named pipe（Unix 与父进程退出监控已完成）
 - [ ] 实现 Generate、Embed、ValidateCredential、Cancel、Health 和 Shutdown（ValidateCredential 待定义）
 - [x] 实现 streaming 背压、context cancellation 和消息大小限制
-- [ ] 提供 Rust 测试客户端与最小桌面宿主示例
+- [x] 提供无第三方运行时依赖的 Rust Unix socket 测试客户端
 - [ ] 建立 macOS arm64/amd64、Windows amd64 和 Linux amd64 构建
 - [ ] 发布签名校验材料、checksums、SBOM 和 release manifest
 - [ ] 完成安全、fuzz、race、协议兼容及端到端测试

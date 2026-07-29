@@ -7,6 +7,35 @@ import (
 	"time"
 )
 
+func FuzzDecoder(f *testing.F) {
+	f.Add("data: hello\n\n")
+	f.Add("event: message\r\ndata: {}\r\n\r\n")
+	f.Fuzz(func(t *testing.T, input string) {
+		decoder := NewDecoder(strings.NewReader(input), 4096)
+		for index := 0; index < 1024; index++ {
+			_, err := decoder.Next()
+			if err != nil {
+				return
+			}
+		}
+		t.Fatal("decoder did not terminate within the event bound")
+	})
+}
+
+func BenchmarkDecoder(b *testing.B) {
+	input := strings.Repeat("data: token\n\n", 128)
+	b.ReportAllocs()
+	for index := 0; index < b.N; index++ {
+		decoder := NewDecoder(strings.NewReader(input), 4096)
+		for {
+			_, err := decoder.Next()
+			if err != nil {
+				break
+			}
+		}
+	}
+}
+
 func TestDecoderParsesMultilineEvent(t *testing.T) {
 	decoder := NewDecoder(strings.NewReader(
 		": keepalive\n"+
