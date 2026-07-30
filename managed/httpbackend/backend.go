@@ -22,13 +22,14 @@ import (
 )
 
 type Backend struct {
-	configURL string
-	secretURL string
-	auditURL  string
-	client    *http.Client
+	configURL    string
+	secretURL    string
+	auditURL     string
+	client       *http.Client
+	serviceToken managed.ServiceTokenSource
 }
 
-func New(configURL, secretURL, auditURL, certificateFile, privateKeyFile string) (*Backend, error) {
+func New(configURL, secretURL, auditURL, certificateFile, privateKeyFile string, sources ...managed.ServiceTokenSource) (*Backend, error) {
 	for _, raw := range []string{configURL, secretURL, auditURL} {
 		parsed, err := url.Parse(raw)
 		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
@@ -41,10 +42,17 @@ func New(configURL, secretURL, auditURL, certificateFile, privateKeyFile string)
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
-	return &Backend{
+	if len(sources) > 1 {
+		return nil, errors.New("managed http backend: at most one service token source is allowed")
+	}
+	backend := &Backend{
 		configURL: strings.TrimRight(configURL, "/"), secretURL: strings.TrimRight(secretURL, "/"), auditURL: strings.TrimRight(auditURL, "/"),
 		client: &http.Client{Timeout: 15 * time.Second, Transport: transport},
-	}, nil
+	}
+	if len(sources) == 1 {
+		backend.serviceToken = sources[0]
+	}
+	return backend, nil
 }
 
 func (b *Backend) ProviderOptions(ctx context.Context, principal identity.Principal) (routing.OptionsResponse, error) {
@@ -117,6 +125,14 @@ func (b *Backend) call(ctx context.Context, principal identity.Principal, method
 		return errors.New("managed http backend: request construction failed")
 	}
 	request.Header.Set("Content-Type", "application/json")
+	if b.serviceToken != nil {
+		token, err := b.serviceToken.ServiceToken(ctx)
+		if err != nil {
+			return errors.New("managed http backend: service token is unavailable")
+		}
+		request.Header.Set("Authorization", "Bearer "+string(token))
+		clear(token)
+	}
 	request.Header.Set("X-LLMKit-Client-ID", principal.ClientID)
 	request.Header.Set("X-LLMKit-User-ID", principal.UserID)
 	request.Header.Set("X-LLMKit-Binding-Version", strconv.FormatUint(principal.BindingVersion, 10))

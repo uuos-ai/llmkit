@@ -43,38 +43,40 @@ type StorageConfig struct {
 }
 
 type Config struct {
-	Mode                Mode               `json:"mode" yaml:"mode"`
-	InstanceID          string             `json:"instance_id" yaml:"instance_id"`
-	Socket              string             `json:"socket" yaml:"socket"`
-	Listen              string             `json:"listen" yaml:"listen"`
-	AdminListen         string             `json:"admin_listen" yaml:"admin_listen"`
-	ParentPID           int                `json:"parent_pid" yaml:"parent_pid"`
-	ClientTokenHashFile string             `json:"client_token_hash_file" yaml:"client_token_hash_file"`
-	BusinessTargetsURL  string             `json:"business_targets_url" yaml:"business_targets_url"`
-	CustomProviderSync  CustomProviderSync `json:"custom_provider_sync" yaml:"custom_provider_sync"`
-	MaxFrameBytes       uint32             `json:"max_frame_bytes" yaml:"max_frame_bytes"`
-	TLS                 TLSConfig          `json:"tls" yaml:"tls"`
-	Storage             StorageConfig      `json:"storage" yaml:"storage"`
+	Mode                     Mode               `json:"mode" yaml:"mode"`
+	InstanceID               string             `json:"instance_id" yaml:"instance_id"`
+	Socket                   string             `json:"socket" yaml:"socket"`
+	Listen                   string             `json:"listen" yaml:"listen"`
+	AdminListen              string             `json:"admin_listen" yaml:"admin_listen"`
+	ParentPID                int                `json:"parent_pid" yaml:"parent_pid"`
+	ClientTokenHashFile      string             `json:"client_token_hash_file" yaml:"client_token_hash_file"`
+	BusinessTargetsURL       string             `json:"business_targets_url" yaml:"business_targets_url"`
+	BusinessServiceTokenFile string             `json:"business_service_token_file" yaml:"business_service_token_file"`
+	CustomProviderSync       CustomProviderSync `json:"custom_provider_sync" yaml:"custom_provider_sync"`
+	MaxFrameBytes            uint32             `json:"max_frame_bytes" yaml:"max_frame_bytes"`
+	TLS                      TLSConfig          `json:"tls" yaml:"tls"`
+	Storage                  StorageConfig      `json:"storage" yaml:"storage"`
 }
 
 type Overrides struct {
-	Mode                *Mode
-	InstanceID          *string
-	Socket              *string
-	Listen              *string
-	AdminListen         *string
-	ParentPID           *int
-	ClientTokenHashFile *string
-	BusinessTargetsURL  *string
-	CustomProviderSync  *CustomProviderSync
-	MaxFrameBytes       *uint32
-	TLSCertificateFile  *string
-	TLSPrivateKeyFile   *string
-	ConfigStore         *string
-	SecretStore         *string
-	AuditStore          *string
-	CoordinationStore   *string
-	SQLitePath          *string
+	Mode                     *Mode
+	InstanceID               *string
+	Socket                   *string
+	Listen                   *string
+	AdminListen              *string
+	ParentPID                *int
+	ClientTokenHashFile      *string
+	BusinessTargetsURL       *string
+	BusinessServiceTokenFile *string
+	CustomProviderSync       *CustomProviderSync
+	MaxFrameBytes            *uint32
+	TLSCertificateFile       *string
+	TLSPrivateKeyFile        *string
+	ConfigStore              *string
+	SecretStore              *string
+	AuditStore               *string
+	CoordinationStore        *string
+	SQLitePath               *string
 }
 
 type LookupEnv func(string) (string, bool)
@@ -135,8 +137,8 @@ func (c Config) Validate() error {
 			return errors.New("llmkitd config: managed local-service requires business_targets_url or storage.sqlite_path")
 		}
 	case ModeGateway:
-		if c.Listen == "" || c.AdminListen == "" || c.ClientTokenHashFile == "" {
-			return errors.New("llmkitd config: gateway requires distinct data/admin listen addresses and client_token_hash_file")
+		if c.Listen == "" || c.AdminListen == "" || c.ClientTokenHashFile == "" || c.BusinessServiceTokenFile == "" {
+			return errors.New("llmkitd config: gateway requires distinct data/admin listen addresses, client_token_hash_file, and business_service_token_file")
 		}
 		if c.Listen == c.AdminListen {
 			return errors.New("llmkitd config: gateway data and admin listen addresses must differ")
@@ -197,6 +199,7 @@ func applyEnvironment(config *Config, lookup LookupEnv) error {
 	setString("LLMKIT_ADMIN_LISTEN", &config.AdminListen)
 	setString("LLMKIT_CLIENT_TOKEN_HASH_FILE", &config.ClientTokenHashFile)
 	setString("LLMKIT_BUSINESS_TARGETS_URL", &config.BusinessTargetsURL)
+	setString("LLMKIT_BUSINESS_SERVICE_TOKEN_FILE", &config.BusinessServiceTokenFile)
 	setString("LLMKIT_TLS_CERTIFICATE_FILE", &config.TLS.CertificateFile)
 	setString("LLMKIT_TLS_PRIVATE_KEY_FILE", &config.TLS.PrivateKeyFile)
 	setString("LLMKIT_CONFIG_STORE", &config.Storage.ConfigStore)
@@ -248,6 +251,9 @@ func applyOverrides(config *Config, overrides Overrides) {
 	}
 	if overrides.BusinessTargetsURL != nil {
 		config.BusinessTargetsURL = *overrides.BusinessTargetsURL
+	}
+	if overrides.BusinessServiceTokenFile != nil {
+		config.BusinessServiceTokenFile = *overrides.BusinessServiceTokenFile
 	}
 	if overrides.CustomProviderSync != nil {
 		config.CustomProviderSync = *overrides.CustomProviderSync

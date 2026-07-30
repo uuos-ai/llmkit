@@ -40,6 +40,7 @@ func TestLoadRejectsUnknownAndUnsafeGateway(t *testing.T) {
 	config.Listen = ":8443"
 	config.AdminListen = ":9443"
 	config.ClientTokenHashFile = "/tokens"
+	config.BusinessServiceTokenFile = "/service-token"
 	config.CustomProviderSync = SyncManaged
 	if err := config.Validate(); err == nil {
 		t.Fatal("expected gateway without TLS and stores to fail closed")
@@ -52,6 +53,7 @@ func TestGatewayRequiresDistinctAdminListener(t *testing.T) {
 	config.Listen = ":8443"
 	config.AdminListen = ":8443"
 	config.ClientTokenHashFile = "/tokens"
+	config.BusinessServiceTokenFile = "/service-token"
 	config.CustomProviderSync = SyncManaged
 	config.TLS.CertificateFile = "/cert"
 	config.TLS.PrivateKeyFile = "/key"

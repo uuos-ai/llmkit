@@ -21,6 +21,7 @@ const (
 	MethodHealth             Method = "health"
 	MethodShutdown           Method = "shutdown"
 	MethodCancel             Method = "cancel"
+	MethodEnroll             Method = "enroll_client"
 	MethodListCapabilities   Method = "list_capabilities"
 	MethodListModels         Method = "list_models"
 	MethodValidateCredential Method = "validate_credential"

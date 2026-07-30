@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,10 +27,12 @@ import (
 	"github.com/uuos-ai/llmkit/localstore"
 	"github.com/uuos-ai/llmkit/managed/httpbackend"
 	"github.com/uuos-ai/llmkit/managed/httpcoord"
+	"github.com/uuos-ai/llmkit/managed/servicetoken"
 	"github.com/uuos-ai/llmkit/providers/all"
 	"github.com/uuos-ai/llmkit/routing"
 	"github.com/uuos-ai/llmkit/runtimeconfig"
 	"github.com/uuos-ai/llmkit/sidecar/binding"
+	"github.com/uuos-ai/llmkit/sidecar/protocol"
 	"github.com/uuos-ai/llmkit/sidecar/server"
 )
 
@@ -106,7 +110,16 @@ func runSidecar(ctx context.Context, stop context.CancelFunc, config runtimeconf
 }
 
 func runLocalService(ctx context.Context, stop context.CancelFunc, config runtimeconfig.Config, registry *llmkit.Registry) error {
-	authenticator, err := identity.LoadTokenHashFile(config.ClientTokenHashFile)
+	enrollment, err := identity.LoadEnrollmentHashFile(config.ClientTokenHashFile)
+	if err != nil {
+		return err
+	}
+	pepper := make([]byte, 32)
+	if _, err := rand.Read(pepper); err != nil {
+		return errors.New("llmkitd: local token key generation failed")
+	}
+	tokens, err := identity.NewTokenManager(identity.TokenManagerConfig{Mode: identity.TokenLocal, Pepper: pepper, AccessTTL: 15 * time.Minute, FamilyTTL: 12 * time.Hour})
+	clear(pepper)
 	if err != nil {
 		return err
 	}
@@ -117,13 +130,26 @@ func runLocalService(ctx context.Context, stop context.CancelFunc, config runtim
 	defer cleanup()
 	shutdown := sync.OnceFunc(func() { stop(); _ = listener.Close() })
 	service, err := server.New(server.Config{
-		Authenticator: authenticator, MaxFrameBytes: config.MaxFrameBytes, Shutdown: shutdown,
+		Authenticator: identity.MultiAuthenticator{tokens, enrollment}, MaxFrameBytes: config.MaxFrameBytes, Shutdown: shutdown,
 		Build: server.BuildInfo{SidecarVersion: version, LLMKitVersion: llmkitVersion, BuildID: buildID, InstanceID: config.InstanceID},
 	})
 	if err != nil {
 		return err
 	}
 	defer service.Close()
+	if err := service.Register(protocol.MethodEnroll, func(ctx context.Context, _ json.RawMessage) (any, error) {
+		principal, ok := identity.FromContext(ctx)
+		if !ok || !principal.HasScope(identity.ScopeClientsEnroll) {
+			return nil, &llmkit.ProviderError{Kind: llmkit.ErrorPermissionDenied, SafeMessage: "client enrollment is not permitted"}
+		}
+		issuedPrincipal, err := enrollment.Consume(principal)
+		if err != nil {
+			return nil, &llmkit.ProviderError{Kind: llmkit.ErrorAuthentication, SafeMessage: "enrollment token is invalid or already used"}
+		}
+		return tokens.Issue(issuedPrincipal)
+	}); err != nil {
+		return err
+	}
 	var managedStore binding.ManagedStore
 	if config.Storage.SQLitePath != "" {
 		store, openErr := localstore.Open(config.Storage.SQLitePath, config.InstanceID)
@@ -180,21 +206,25 @@ func runGateway(ctx context.Context, config runtimeconfig.Config, registry *llmk
 	if err != nil {
 		return err
 	}
+	serviceToken, err := servicetoken.NewFileSource(config.BusinessServiceTokenFile)
+	if err != nil {
+		return err
+	}
 	backend, err := httpbackend.New(
 		config.Storage.ConfigStore, config.Storage.SecretStore, config.Storage.AuditStore,
-		config.TLS.CertificateFile, config.TLS.PrivateKeyFile,
+		config.TLS.CertificateFile, config.TLS.PrivateKeyFile, serviceToken,
 	)
 	if err != nil {
 		return err
 	}
-	coordination, err := httpcoord.New(config.Storage.CoordinationStore, config.TLS.CertificateFile, config.TLS.PrivateKeyFile)
+	coordination, err := httpcoord.New(config.Storage.CoordinationStore, config.TLS.CertificateFile, config.TLS.PrivateKeyFile, serviceToken)
 	if err != nil {
 		return err
 	}
 	service, err := gateway.New(gateway.Config{
-		InstanceID: config.InstanceID, Registry: registry, Authenticator: authenticator, ConfigStore: backend,
+		InstanceID: config.InstanceID, Registry: registry, Authenticator: identity.MultiAuthenticator{coordination, authenticator}, ConfigStore: backend,
 		SecretStore: backend, AuditStore: backend, CustomProviders: backend,
-		SessionStore: coordination, BindingStore: coordination, RateLimitStore: coordination,
+		SessionStore: coordination, BindingStore: coordination, RateLimitStore: coordination, IdentityService: coordination,
 		EndpointPolicy: endpointpolicy.PublicHTTPS(ctx, nil), MaxBodyBytes: int64(config.MaxFrameBytes),
 	})
 	if err != nil {
@@ -301,6 +331,7 @@ func parseFlags(arguments []string) (string, runtimeconfig.Overrides, error) {
 	set.Var(optionalInt{&overrides.ParentPID}, "parent-pid", "sidecar host process ID")
 	set.Var(optionalString{&overrides.ClientTokenHashFile}, "client-token-hash-file", "client token hash file")
 	set.Var(optionalString{&overrides.BusinessTargetsURL}, "business-targets-url", "business available-target-list HTTPS URL")
+	set.Var(optionalString{&overrides.BusinessServiceTokenFile}, "business-service-token-file", "restricted file containing a rotating business API service token")
 	set.Var(optionalString{&syncMode}, "custom-provider-sync", "disabled or managed")
 	set.Var(optionalUint32{&overrides.MaxFrameBytes}, "max-frame-bytes", "maximum local frame or gateway body size")
 	set.Var(optionalString{&overrides.TLSCertificateFile}, "tls-certificate-file", "gateway TLS certificate")

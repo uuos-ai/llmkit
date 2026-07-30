@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"github.com/uuos-ai/llmkit"
+	"github.com/uuos-ai/llmkit/identity"
 	"github.com/uuos-ai/llmkit/managed"
 	"github.com/uuos-ai/llmkit/routing"
 )
@@ -11,6 +12,8 @@ type Credential struct {
 	Header string `json:"header,omitempty"`
 	Value  []byte `json:"value"`
 }
+
+type EnrollClientResponse = identity.TokenPair
 
 type CapabilitiesRequest struct {
 	TargetID string        `json:"target_id,omitempty"`

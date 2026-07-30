@@ -7,6 +7,10 @@ import (
 	"github.com/uuos-ai/llmkit/identity"
 )
 
+type ServiceTokenSource interface {
+	ServiceToken(context.Context) ([]byte, error)
+}
+
 type SessionStatus string
 
 const (
@@ -55,4 +59,32 @@ type RateLimitStore interface {
 	Reserve(context.Context, RateLimitRequest) (RateLimitLease, error)
 	Commit(context.Context, string, RateLimitUsage) error
 	Release(context.Context, string) error
+}
+
+type OIDCExchangeRequest struct {
+	Assertion        string `json:"assertion"`
+	ClientInstanceID string `json:"client_instance_id"`
+}
+
+type RefreshTokenRequest struct {
+	AccessToken    string `json:"access_token"`
+	RefreshToken   string `json:"refresh_token"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+type BindUserRequest struct {
+	Principal              identity.Principal `json:"principal"`
+	UserID                 string             `json:"user_id"`
+	ExpectedBindingVersion uint64             `json:"expected_binding_version"`
+	IdempotencyKey         string             `json:"idempotency_key"`
+	Proof                  []byte             `json:"proof,omitempty"`
+}
+
+// IdentityService is the strongly consistent gateway authority for token
+// families and user switches. OIDC is accepted only by ExchangeOIDC.
+type IdentityService interface {
+	identity.Authenticator
+	ExchangeOIDC(context.Context, OIDCExchangeRequest) (identity.TokenPair, error)
+	RefreshToken(context.Context, RefreshTokenRequest) (identity.TokenPair, error)
+	BindUser(context.Context, BindUserRequest) (identity.TokenPair, identity.UserBinding, error)
 }

@@ -37,6 +37,7 @@ const (
 	ScopeAuditRead        = "audit:read"
 	ScopeAdminClients     = "admin:clients"
 	ScopeAdminRuntime     = "admin:runtime"
+	ScopeClientsEnroll    = "clients:enroll"
 )
 
 func (p Principal) Key() string { return p.ClientID + "\x00" + p.UserID }
@@ -60,6 +61,22 @@ type AuthenticatorFunc func(context.Context, []byte) (Principal, bool)
 
 func (f AuthenticatorFunc) Authenticate(ctx context.Context, token []byte) (Principal, bool) {
 	return f(ctx, token)
+}
+
+// MultiAuthenticator tries independent token namespaces in order. Callers
+// must ensure each authenticator accepts only its own explicit token prefix.
+type MultiAuthenticator []Authenticator
+
+func (m MultiAuthenticator) Authenticate(ctx context.Context, token []byte) (Principal, bool) {
+	for _, authenticator := range m {
+		if authenticator == nil {
+			continue
+		}
+		if principal, ok := authenticator.Authenticate(ctx, token); ok {
+			return principal, true
+		}
+	}
+	return Principal{}, false
 }
 
 func SingleToken(token []byte, principal Principal) (Authenticator, error) {

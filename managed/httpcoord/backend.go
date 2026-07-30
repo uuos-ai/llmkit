@@ -19,26 +19,34 @@ import (
 )
 
 type Backend struct {
-	base   string
-	client *http.Client
+	base         string
+	client       *http.Client
+	serviceToken managed.ServiceTokenSource
 }
 
-func New(base, certificateFile, privateKeyFile string) (*Backend, error) {
+func New(base, certificateFile, privateKeyFile string, sources ...managed.ServiceTokenSource) (*Backend, error) {
 	certificate, err := tls.LoadX509KeyPair(certificateFile, privateKeyFile)
 	if err != nil {
 		return nil, errors.New("httpcoord: client certificate could not be loaded")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
-	return NewWithClient(base, &http.Client{Transport: transport})
+	return NewWithClient(base, &http.Client{Transport: transport}, sources...)
 }
 
-func NewWithClient(base string, client *http.Client) (*Backend, error) {
+func NewWithClient(base string, client *http.Client, sources ...managed.ServiceTokenSource) (*Backend, error) {
 	parsed, err := url.Parse(base)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || client == nil {
 		return nil, errors.New("httpcoord: HTTPS base URL without userinfo and HTTP client are required")
 	}
-	return &Backend{base: strings.TrimRight(base, "/"), client: client}, nil
+	var source managed.ServiceTokenSource
+	if len(sources) > 1 {
+		return nil, errors.New("httpcoord: at most one service token source is allowed")
+	}
+	if len(sources) == 1 {
+		source = sources[0]
+	}
+	return &Backend{base: strings.TrimRight(base, "/"), client: client, serviceToken: source}, nil
 }
 
 func (b *Backend) GetSession(ctx context.Context, id string) (managed.Session, bool, error) {
@@ -114,6 +122,36 @@ func (b *Backend) Release(ctx context.Context, id string) error {
 	return err
 }
 
+func (b *Backend) Authenticate(ctx context.Context, token []byte) (identity.Principal, bool) {
+	if !strings.HasPrefix(string(token), identity.AccessPrefix(identity.TokenGateway)) {
+		return identity.Principal{}, false
+	}
+	var principal identity.Principal
+	_, err := b.call(ctx, http.MethodPost, "/v1/tokens:authenticate", map[string]string{"access_token": string(token)}, &principal)
+	return principal, err == nil && principal.ClientID != ""
+}
+
+func (b *Backend) ExchangeOIDC(ctx context.Context, request managed.OIDCExchangeRequest) (identity.TokenPair, error) {
+	var pair identity.TokenPair
+	_, err := b.call(ctx, http.MethodPost, "/v1/oidc:exchange", request, &pair)
+	return pair, err
+}
+
+func (b *Backend) RefreshToken(ctx context.Context, request managed.RefreshTokenRequest) (identity.TokenPair, error) {
+	var pair identity.TokenPair
+	_, err := b.call(ctx, http.MethodPost, "/v1/tokens:refresh", request, &pair)
+	return pair, err
+}
+
+func (b *Backend) BindUser(ctx context.Context, request managed.BindUserRequest) (identity.TokenPair, identity.UserBinding, error) {
+	var response struct {
+		Tokens  identity.TokenPair   `json:"tokens"`
+		Binding identity.UserBinding `json:"binding"`
+	}
+	_, err := b.call(ctx, http.MethodPost, "/v1/sessions:bind-user", request, &response)
+	return response.Tokens, response.Binding, err
+}
+
 func (b *Backend) call(ctx context.Context, method, path string, input, output any) (int, error) {
 	var body io.Reader
 	if input != nil {
@@ -129,6 +167,14 @@ func (b *Backend) call(ctx context.Context, method, path string, input, output a
 		return 0, errors.New("httpcoord: request failed")
 	}
 	request.Header.Set("Content-Type", "application/json")
+	if b.serviceToken != nil {
+		token, err := b.serviceToken.ServiceToken(ctx)
+		if err != nil {
+			return 0, errors.New("httpcoord: service token unavailable")
+		}
+		request.Header.Set("Authorization", "Bearer "+string(token))
+		clear(token)
+	}
 	response, err := b.client.Do(request)
 	if err != nil {
 		return 0, errors.New("httpcoord: service unavailable")
@@ -151,3 +197,4 @@ func (b *Backend) call(ctx context.Context, method, path string, input, output a
 var _ managed.SessionStore = (*Backend)(nil)
 var _ identity.UserBindingStore = (*Backend)(nil)
 var _ managed.RateLimitStore = (*Backend)(nil)
+var _ managed.IdentityService = (*Backend)(nil)

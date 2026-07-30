@@ -30,6 +30,7 @@ type Config struct {
 	SessionStore    managed.SessionStore
 	BindingStore    identity.UserBindingStore
 	RateLimitStore  managed.RateLimitStore
+	IdentityService managed.IdentityService
 	CustomProviders managed.CustomProviderStore
 	EndpointPolicy  func(llmkit.Target) error
 	MaxBodyBytes    int64
@@ -43,8 +44,8 @@ type Server struct {
 }
 
 func New(config Config) (*Server, error) {
-	if config.Registry == nil || config.Authenticator == nil || config.ConfigStore == nil || config.SecretStore == nil || config.AuditStore == nil || config.SessionStore == nil || config.BindingStore == nil || config.RateLimitStore == nil {
-		return nil, errors.New("gateway: registry, authenticator, and external config, secret, audit, session, binding, and rate-limit stores are required")
+	if config.Registry == nil || config.Authenticator == nil || config.ConfigStore == nil || config.SecretStore == nil || config.AuditStore == nil || config.SessionStore == nil || config.BindingStore == nil || config.RateLimitStore == nil || config.IdentityService == nil {
+		return nil, errors.New("gateway: registry, authenticator, and external config, secret, audit, session, binding, rate-limit, and identity services are required")
 	}
 	if config.MaxBodyBytes <= 0 {
 		config.MaxBodyBytes = 8 << 20
@@ -64,7 +65,10 @@ func New(config Config) (*Server, error) {
 	data.Handle("POST /v1/moderate", server.authenticate(server.rateLimit(http.HandlerFunc(server.moderate))))
 	data.Handle("POST /v1/blobs", server.authenticate(http.HandlerFunc(server.putBlob)))
 	data.Handle("DELETE /v1/blobs/{blob_ref}", server.authenticate(http.HandlerFunc(server.deleteBlob)))
+	data.Handle("POST /v1/tokens/refresh", server.authenticate(http.HandlerFunc(server.refreshToken)))
+	data.Handle("POST /v1/session/bind-user", server.authenticate(http.HandlerFunc(server.bindUser)))
 	control := http.NewServeMux()
+	control.HandleFunc("POST /v1/auth/oidc/exchange", server.exchangeOIDC)
 	control.Handle("PUT /v1/custom-providers", server.authenticate(http.HandlerFunc(server.upsertCustomProvider)))
 	control.Handle("DELETE /v1/custom-providers/{provider_id}", server.authenticate(http.HandlerFunc(server.deleteCustomProvider)))
 	combined := http.NewServeMux()

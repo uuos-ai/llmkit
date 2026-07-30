@@ -107,6 +107,19 @@ func (*testStores) Reserve(context.Context, managed.RateLimitRequest) (managed.R
 }
 func (*testStores) Commit(context.Context, string, managed.RateLimitUsage) error { return nil }
 func (*testStores) Release(context.Context, string) error                        { return nil }
+func (*testStores) Authenticate(context.Context, []byte) (identity.Principal, bool) {
+	return identity.Principal{}, false
+}
+func (*testStores) ExchangeOIDC(context.Context, managed.OIDCExchangeRequest) (identity.TokenPair, error) {
+	return identity.TokenPair{AccessToken: identity.AccessPrefix(identity.TokenGateway) + "access", RefreshToken: identity.RefreshPrefix(identity.TokenGateway) + "refresh"}, nil
+}
+func (*testStores) RefreshToken(context.Context, managed.RefreshTokenRequest) (identity.TokenPair, error) {
+	return identity.TokenPair{AccessToken: identity.AccessPrefix(identity.TokenGateway) + "next", RefreshToken: identity.RefreshPrefix(identity.TokenGateway) + "next"}, nil
+}
+func (s *testStores) BindUser(_ context.Context, request managed.BindUserRequest) (identity.TokenPair, identity.UserBinding, error) {
+	s.binding = identity.UserBinding{ClientID: request.Principal.ClientID, UserID: request.UserID, BindingVersion: request.ExpectedBindingVersion + 1}
+	return identity.TokenPair{AccessToken: identity.AccessPrefix(identity.TokenGateway) + "bound", RefreshToken: identity.RefreshPrefix(identity.TokenGateway) + "bound"}, s.binding, nil
+}
 
 type testCredential struct{ value []byte }
 
@@ -272,8 +285,56 @@ func TestGatewayRejectsStaleUserBinding(t *testing.T) {
 	}
 }
 
+func TestGatewayOIDCExchangeIsControlPlaneOnly(t *testing.T) {
+	stores := &testStores{}
+	token := []byte("2233445566778899aabbccddeeff0011")
+	auth, _ := identity.SingleToken(token, identity.Principal{ClientID: "admin"})
+	service, err := newTestServer(llmkit.NewRegistry(), auth, stores)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"assertion":"signed-oidc","client_instance_id":"instance"}`
+	response := httptest.NewRecorder()
+	service.ControlHandler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/auth/oidc/exchange", bytes.NewBufferString(body)))
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(identity.AccessPrefix(identity.TokenGateway))) {
+		t.Fatalf("control status=%d body=%s", response.Code, response.Body.String())
+	}
+	response = httptest.NewRecorder()
+	service.DataHandler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/auth/oidc/exchange", bytes.NewBufferString(body)))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("OIDC exchange exposed on data plane: %d", response.Code)
+	}
+}
+
+func TestGatewayRefreshAndBindUser(t *testing.T) {
+	token := []byte("33445566778899aabbccddeeff001122")
+	scopes := map[string]struct{}{identity.ScopeTokensRefresh: {}, identity.ScopeUsersBind: {}}
+	auth, _ := identity.SingleToken(token, identity.Principal{ClientID: "client", UserID: "old", BindingVersion: 1, Scopes: scopes})
+	stores := &testStores{binding: identity.UserBinding{ClientID: "client", UserID: "old", BindingVersion: 1}}
+	service, err := newTestServer(llmkit.NewRegistry(), auth, stores)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/tokens/refresh", bytes.NewBufferString(`{"refresh_token":"llmk_gr1_refresh"}`))
+	request.Header.Set("Authorization", "Bearer "+string(token))
+	request.Header.Set("Idempotency-Key", "refresh-1")
+	response := httptest.NewRecorder()
+	service.DataHandler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(identity.RefreshPrefix(identity.TokenGateway))) {
+		t.Fatalf("refresh status=%d body=%s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, "/v1/session/bind-user", bytes.NewBufferString(`{"user_id":"new","expected_binding_version":1}`))
+	request.Header.Set("Authorization", "Bearer "+string(token))
+	request.Header.Set("Idempotency-Key", "bind-1")
+	response = httptest.NewRecorder()
+	service.DataHandler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || stores.binding.UserID != "new" || stores.binding.BindingVersion != 2 {
+		t.Fatalf("bind status=%d body=%s binding=%#v", response.Code, response.Body.String(), stores.binding)
+	}
+}
+
 func newTestServer(registry *llmkit.Registry, auth identity.Authenticator, stores *testStores, options ...func(*Config)) (*Server, error) {
-	config := Config{Registry: registry, Authenticator: auth, ConfigStore: stores, SecretStore: stores, AuditStore: stores, SessionStore: stores, BindingStore: stores, RateLimitStore: stores}
+	config := Config{Registry: registry, Authenticator: auth, ConfigStore: stores, SecretStore: stores, AuditStore: stores, SessionStore: stores, BindingStore: stores, RateLimitStore: stores, IdentityService: stores}
 	for _, option := range options {
 		option(&config)
 	}

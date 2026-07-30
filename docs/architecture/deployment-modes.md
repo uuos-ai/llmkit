@@ -14,6 +14,8 @@
 
 配置优先级固定为：内置默认 < 严格 YAML/JSON < `LLMKIT_*` 环境变量 < CLI。安全配置只在启动时加载，密钥不得通过普通配置、命令行或环境变量传入。
 
+local-service 的 `client_token_hash_file` 保存受限权限的一次性 `llmk_le1_` token 哈希及待签发 scopes；客户端完成 `enroll_client` 后改用返回的 `llmk_l1_` / `llmk_lr1_`。gateway 的 `business_service_token_file` 只保存文件路径，文件内容在每次业务 API 请求时读取，因此短期 service token 可原子轮换且不经环境变量或命令行传递。
+
 ## 身份模型
 
 `client_id` 表示一个独立业务。一个 client 同时最多绑定一个当前 `user_id`，但 user 可切换；`user_id` 只在 client 内有意义：
@@ -44,7 +46,7 @@ target 显式绑定 credential mode，不跨 business/client/user scope 回退�
 
 数据面包含目标读取、推理、流、blob 与 token refresh。控制面包含 client/enrollment、Provider/凭据写入、runtime policy 与审计。生产 gateway 使用必填且不同的 `listen` / `admin_listen`；local-service 使用独立 admin IPC；sidecar 即使共用 pipe 也使用独立 namespace 与 scopes。
 
-gateway 的 `storage.coordination_store`（或 `LLMKIT_COORDINATION_STORE` / `--coordination-store`）提供强一致的 SessionStore、UserBindingStore 与 RateLimitStore HTTP 合同。每次认证都校验当前 binding；推理前获取跨副本限流 lease，结束后提交或释放。
+gateway 的 `storage.coordination_store`（或 `LLMKIT_COORDINATION_STORE` / `--coordination-store`）提供强一致的 SessionStore、UserBindingStore、RateLimitStore 与 IdentityService HTTP 合同。每次认证都校验当前 binding；推理前获取跨副本限流 lease，结束后提交或释放。所有业务 store 请求同时携带 mTLS client certificate 与 `business_service_token_file` 中的短期 bearer token。
 
 ## 持久化
 
