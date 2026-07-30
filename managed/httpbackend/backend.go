@@ -87,7 +87,7 @@ func (b *Backend) Append(ctx context.Context, event managed.AuditEvent) error {
 }
 
 func (b *Backend) UpsertCustomProvider(ctx context.Context, principal identity.Principal, input managed.CustomProviderInput) (routing.OptionsResponse, error) {
-	defer clear(input.Credential)
+	defer clear(input.Credential.Value)
 	var response routing.OptionsResponse
 	err := b.call(ctx, principal, http.MethodPut, b.configURL+"/v1/custom-providers", input, &response)
 	return response, err

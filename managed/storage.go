@@ -53,5 +53,11 @@ type CustomProviderStore interface {
 
 type CustomProviderInput struct {
 	Provider   routing.ProviderOption `json:"provider"`
-	Credential []byte                 `json:"credential"`
+	Credential CredentialInput        `json:"credential"`
+}
+
+type CredentialInput struct {
+	Type   string `json:"type"`
+	Header string `json:"header,omitempty"`
+	Value  []byte `json:"value"`
 }

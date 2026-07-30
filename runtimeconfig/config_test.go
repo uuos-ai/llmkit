@@ -54,3 +54,18 @@ func TestInstanceIDValidation(t *testing.T) {
 		t.Fatal("expected unsafe instance ID to be rejected")
 	}
 }
+
+func TestLocalSQLiteRequiresManagedSync(t *testing.T) {
+	config := Defaults()
+	config.Mode = ModeLocalService
+	config.Socket = "/tmp/llmkit.sock"
+	config.ClientTokenHashFile = "/tmp/tokens.json"
+	config.Storage.SQLitePath = "/tmp/llmkit.sqlite"
+	if err := config.Validate(); err == nil {
+		t.Fatal("expected disabled-sync SQLite to fail")
+	}
+	config.CustomProviderSync = SyncManaged
+	if err := config.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

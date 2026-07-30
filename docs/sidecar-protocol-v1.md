@@ -45,6 +45,8 @@ so a slow local consumer applies bounded backpressure to upstream `Recv`.
 - `list_models`
 - `validate_credential`
 - `resolve_provider_options`
+- `upsert_custom_provider` (managed local-service only)
+- `delete_custom_provider` (managed local-service only)
 - `generate` (unary and streaming)
 - `embed`
 

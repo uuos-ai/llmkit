@@ -245,7 +245,7 @@ func (s *Server) upsertCustomProvider(writer http.ResponseWriter, request *http.
 	if !s.decode(writer, request, &input) {
 		return
 	}
-	defer clear(input.Credential)
+	defer clear(input.Credential.Value)
 	if err := routing.ValidateCustomProvider(input.Provider); err != nil {
 		writeAPIError(writer, http.StatusBadRequest, "invalid_request", err.Error())
 		return

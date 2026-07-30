@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"github.com/uuos-ai/llmkit"
+	"github.com/uuos-ai/llmkit/managed"
 	"github.com/uuos-ai/llmkit/routing"
 )
 
@@ -54,3 +55,9 @@ type EmbedRequest struct {
 
 type ResolveProviderOptionsRequest = routing.OptionsRequest
 type ResolveProviderOptionsResponse = routing.OptionsResponse
+
+type UpsertCustomProviderRequest = managed.CustomProviderInput
+
+type DeleteCustomProviderRequest struct {
+	ProviderID string `json:"provider_id"`
+}

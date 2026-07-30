@@ -47,6 +47,7 @@ interfaces:
   session views, and caller-triggered client cache replacement;
 - `managed`: external ConfigStore, SecretStore, AuditStore, and custom-provider
   synchronization ports;
+- `localstore`: optional SQLite metadata plus OS keyring managed profile;
 - `gateway`: normalized HTTPS JSON/SSE transport;
 - `runtimeconfig`: strict three-mode startup configuration.
 

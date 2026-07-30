@@ -9,6 +9,7 @@ import (
 
 	"github.com/uuos-ai/llmkit"
 	"github.com/uuos-ai/llmkit/identity"
+	"github.com/uuos-ai/llmkit/managed"
 	"github.com/uuos-ai/llmkit/routing"
 	"github.com/uuos-ai/llmkit/sidecar/protocol"
 	"github.com/uuos-ai/llmkit/sidecar/server"
@@ -222,6 +223,47 @@ func TestTargetIDUsesClientCatalogAndDynamicDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	if provider.header != "Bearer routed-secret" {
+		t.Fatalf("header = %q", provider.header)
+	}
+}
+
+type fakeManagedStore struct{}
+
+func (fakeManagedStore) ProviderOptions(context.Context, identity.Principal) (routing.OptionsResponse, error) {
+	return routing.OptionsResponse{DefaultTargetID: "stored", Providers: []routing.ProviderOption{{
+		ID: "custom", Source: routing.SourceCustom, Targets: []routing.TargetOption{{ID: "stored", Target: llmkit.Target{Provider: "fake", Model: "stored-model"}}},
+	}}}, nil
+}
+func (fakeManagedStore) ResolveTarget(context.Context, identity.Principal, string) (managed.Target, error) {
+	return managed.Target{ID: "stored", Target: llmkit.Target{Provider: "fake", Model: "stored-model"}, CredentialRef: "keyring:stored"}, nil
+}
+func (fakeManagedStore) OpenCredential(context.Context, identity.Principal, string) (llmkit.CredentialHandle, func(), error) {
+	handle := &requestCredential{header: "Authorization", value: []byte("Bearer stored-secret")}
+	return handle, handle.clear, nil
+}
+func (fakeManagedStore) UpsertCustomProvider(context.Context, identity.Principal, managed.CustomProviderInput) (routing.OptionsResponse, error) {
+	return routing.OptionsResponse{}, nil
+}
+func (fakeManagedStore) DeleteCustomProvider(context.Context, identity.Principal, string) (routing.OptionsResponse, error) {
+	return routing.OptionsResponse{}, nil
+}
+
+func TestManagedTargetOpensRequestScopedStoredCredential(t *testing.T) {
+	binding, provider := testBinder(t)
+	store := fakeManagedStore{}
+	principal := identity.Principal{TenantID: "tenant", ClientID: "client"}
+	routes := routing.NewSessionCatalog(routing.SourceFunc(store.ProviderOptions))
+	if _, err := routes.Refresh(context.Background(), principal, routing.OptionsRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	binding.routes = routes
+	binding.managed = store
+	payload, _ := json.Marshal(protocol.GenerateRequest{})
+	ctx := identity.WithPrincipal(context.Background(), principal)
+	if _, err := binding.generate(ctx, payload); err != nil {
+		t.Fatal(err)
+	}
+	if provider.header != "Bearer stored-secret" {
 		t.Fatalf("header = %q", provider.header)
 	}
 }

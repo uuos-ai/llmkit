@@ -124,6 +124,12 @@ func (c Config) Validate() error {
 		if c.Socket == "" || c.ClientTokenHashFile == "" {
 			return errors.New("llmkitd config: local-service requires socket and client_token_hash_file")
 		}
+		if c.Storage.SQLitePath != "" && c.CustomProviderSync != SyncManaged {
+			return errors.New("llmkitd config: local SQLite/OS secret storage requires custom_provider_sync=managed")
+		}
+		if c.CustomProviderSync == SyncManaged && c.BusinessCatalogURL == "" && c.Storage.SQLitePath == "" {
+			return errors.New("llmkitd config: managed local-service requires business_catalog_url or storage.sqlite_path")
+		}
 	case ModeGateway:
 		if c.Listen == "" || c.ClientTokenHashFile == "" {
 			return errors.New("llmkitd config: gateway requires listen and client_token_hash_file")

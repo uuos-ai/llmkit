@@ -22,6 +22,7 @@ import (
 	"github.com/uuos-ai/llmkit/endpointpolicy"
 	"github.com/uuos-ai/llmkit/gateway"
 	"github.com/uuos-ai/llmkit/identity"
+	"github.com/uuos-ai/llmkit/localstore"
 	"github.com/uuos-ai/llmkit/managed/httpbackend"
 	"github.com/uuos-ai/llmkit/providers/all"
 	"github.com/uuos-ai/llmkit/routing"
@@ -100,7 +101,7 @@ func runSidecar(ctx context.Context, stop context.CancelFunc, config runtimeconf
 		return err
 	}
 	defer service.Close()
-	return bindAndServe(ctx, listener, service, config, registry)
+	return bindAndServe(ctx, listener, service, config, registry, nil)
 }
 
 func runLocalService(ctx context.Context, stop context.CancelFunc, config runtimeconfig.Config, registry *llmkit.Registry) error {
@@ -122,10 +123,19 @@ func runLocalService(ctx context.Context, stop context.CancelFunc, config runtim
 		return err
 	}
 	defer service.Close()
-	return bindAndServe(ctx, listener, service, config, registry)
+	var managedStore binding.ManagedStore
+	if config.Storage.SQLitePath != "" {
+		store, openErr := localstore.Open(config.Storage.SQLitePath, config.InstanceID)
+		if openErr != nil {
+			return openErr
+		}
+		defer store.Close()
+		managedStore = store
+	}
+	return bindAndServe(ctx, listener, service, config, registry, managedStore)
 }
 
-func bindAndServe(ctx context.Context, listener net.Listener, service *server.Server, config runtimeconfig.Config, registry *llmkit.Registry) error {
+func bindAndServe(ctx context.Context, listener net.Listener, service *server.Server, config runtimeconfig.Config, registry *llmkit.Registry, managedStore binding.ManagedStore) error {
 	go func() {
 		<-ctx.Done()
 		_ = listener.Close()
@@ -134,9 +144,15 @@ func bindAndServe(ctx context.Context, listener net.Listener, service *server.Se
 	if config.BusinessCatalogURL != "" {
 		source = routing.HTTPSource{URL: config.BusinessCatalogURL}
 	}
+	if managedStore != nil {
+		localSource := routing.SourceFunc(func(ctx context.Context, principal identity.Principal) (routing.OptionsResponse, error) {
+			return managedStore.ProviderOptions(ctx, principal)
+		})
+		source = routing.CombineSources(source, localSource)
+	}
 	routes := routing.NewSessionCatalogWithPolicy(source, config.CustomProviderSync == runtimeconfig.SyncDisabled)
 	if err := binding.Register(service, binding.Config{
-		Registry: registry, Routes: routes, EndpointPolicy: endpointpolicy.PublicHTTPS(ctx, nil),
+		Registry: registry, Routes: routes, EndpointPolicy: endpointpolicy.PublicHTTPS(ctx, nil), ManagedStore: managedStore,
 	}); err != nil {
 		return err
 	}

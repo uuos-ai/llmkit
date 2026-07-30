@@ -52,7 +52,7 @@ Provider 覆盖规划：
 项目已完成首批 Provider SDK、统一 `llmkitd` 三模式运行时与本地协议基线。当前包括类型化
 Provider/Registry API、请求级凭据、凭据验证、HTTP Transport、SSE parser、
 显式同目标 retry、conformance harness，以及国内外首批 Provider 的独立
-离线协议合同测试。
+离线协议合同测试；本地 managed 模式还可选 SQLite + OS keyring 持久化。
 
 - [分析索引](./docs/README.md)
 - [new-api relay/relaykit 分析](./docs/research/new-api-relay-relaykit-analysis.md)

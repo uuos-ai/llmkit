@@ -206,3 +206,26 @@ func RegistrySource(registry *llmkit.Registry) Source {
 		return response, nil
 	})
 }
+
+// CombineSources creates one catalog view while preserving source order.
+// The first non-empty default wins; SessionCatalog validates global IDs.
+func CombineSources(sources ...Source) Source {
+	return SourceFunc(func(ctx context.Context, principal identity.Principal) (OptionsResponse, error) {
+		result := OptionsResponse{GeneratedAt: time.Now().UTC()}
+		for _, source := range sources {
+			if source == nil {
+				continue
+			}
+			options, err := source.Options(ctx, principal)
+			if err != nil {
+				return OptionsResponse{}, err
+			}
+			result.Providers = append(result.Providers, options.Providers...)
+			if result.DefaultTargetID == "" {
+				result.DefaultTargetID = options.DefaultTargetID
+			}
+		}
+		result.Revision = revision(result)
+		return result, nil
+	})
+}

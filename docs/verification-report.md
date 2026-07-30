@@ -17,6 +17,7 @@ cross-compile all release targets.
 | Routing | Strict explicit target IDs, dynamic default resolution, A2 non-secret local catalog merge |
 | Gateway | Bearer authentication, external target/secret resolution, normalized JSON response and audit metadata |
 | Configuration | Strict YAML/JSON, unknown-field rejection, default/file/env/CLI precedence, gateway fail-closed validation |
+| Optional local state | SQLite CRUD/isolation, OS-keyring mock, stored request-scoped credential opening and deletion |
 | Local runtime | Real child-process handshake/health/shutdown test over Unix socket and Windows named pipe |
 | Memory/concurrency | `go test -race ./...`; model/capability refresh coalescing and clone isolation |
 | Fuzzing | Continuous smoke fuzzing for sidecar framing and SSE decoding in CI |

@@ -27,3 +27,5 @@ first release.
   requires external ConfigStore, SecretStore, and AuditStore implementations.
 - Prompt/response content is not persisted by default. Secrets remain
   request-scoped or are opened from a Vault/KMS-backed SecretStore reference.
+- Optional managed local persistence stores only non-secret catalog metadata in
+  a `0600` SQLite file and keeps Provider credentials in the OS keyring.

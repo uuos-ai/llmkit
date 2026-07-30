@@ -8,7 +8,7 @@
 | 模式 | 传输 | 身份 | 自定义 Provider | 状态 |
 | --- | --- | --- | --- | --- |
 | `sidecar`（默认） | UDS / named pipe，framed JSON | stdin 单会话密钥 | `disabled`，A2 本地合并 | 无状态；父进程退出即退出 |
-| `local-service` | UDS / named pipe，framed JSON | 每客户端 token → tenant/client | `disabled` 或 `managed` | 默认无状态；可注入本地持久化扩展 |
+| `local-service` | UDS / named pipe，framed JSON | 每客户端 token → tenant/client | `disabled` 或 `managed` | 默认无状态；可选 SQLite + OS secret store |
 | `gateway` | HTTPS JSON + SSE | 每客户端 token → tenant/client | 强制 `managed` | 必须使用外部 Config/Secret/Audit Store |
 
 同一电脑可运行多个独立实例。每个实例设置不同 `instance_id`，并使用不同
@@ -128,6 +128,13 @@ gateway 本身不把密钥写入 ConfigStore。`CustomProviderStore` 的业务�
 `credential_ref`。HTTP backend 把管理请求转发给业务 ConfigStore 服务，
 由业务平台完成原子性、版本冲突与密钥轮换。
 
+local-service 在 `managed` 模式下还可设置 `storage.sqlite_path`，启用内置
+`localstore`：非敏感 Provider/target 元数据写入权限为 `0600` 的 SQLite，
+凭据写入 macOS Keychain、Windows Credential Manager 或 Linux Secret
+Service。IPC 使用 `upsert_custom_provider` / `delete_custom_provider` 管理，
+执行时按 target ID 打开请求级凭据并立即释放。`disabled` 模式禁止启用该
+存储，继续保持 A2 完全由客户端保存。
+
 ## Gateway API 与存储契约
 
 客户端 API：
@@ -158,8 +165,7 @@ backend 调用携带可信 `X-LLMKit-Tenant-ID` 和 `X-LLMKit-Client-ID`。这�
 ## 持久化原则
 
 - sidecar 无状态，不持久化凭据、目录或模型内容。
-- local-service 默认无状态；`managed.ConfigStore`/`SecretStore` 是本地 SQLite
-  与 OS secret store 等可选适配器的扩展边界。是否缓存由宿主显式配置，
-  `disabled` 的 A2 目录默认只驻留内存。
+- local-service 默认无状态；设置 `storage.sqlite_path` 与 `managed` 同步模式
+  后启用内置 SQLite + OS secret store。`disabled` 的 A2 目录只驻留内存。
 - gateway 必须有外部 ConfigStore、SecretStore、AuditStore，缺任一项启动失败。
 - prompt 和 response 默认不进入任何 Store；AuditEvent 只记录非内容元数据与 usage。

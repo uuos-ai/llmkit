@@ -25,6 +25,8 @@ const (
 	MethodListModels         Method = "list_models"
 	MethodValidateCredential Method = "validate_credential"
 	MethodResolveOptions     Method = "resolve_provider_options"
+	MethodUpsertCustom       Method = "upsert_custom_provider"
+	MethodDeleteCustom       Method = "delete_custom_provider"
 	MethodGenerate           Method = "generate"
 	MethodEmbed              Method = "embed"
 )
