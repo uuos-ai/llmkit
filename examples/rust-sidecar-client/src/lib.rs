@@ -38,6 +38,8 @@ pub struct ProtocolError {
 pub struct HandshakeRequest<'a> {
     pub supported_versions: [&'a str; 1],
     pub host_build_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<&'a str>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +77,18 @@ impl<S: Read + Write> Client<S> {
             HandshakeRequest {
                 supported_versions: [PROTOCOL_VERSION],
                 host_build_id,
+                purpose: None,
+            },
+        )
+    }
+
+    pub fn recovery_handshake(&mut self, host_build_id: &str) -> io::Result<HandshakeResponse> {
+        self.call(
+            "handshake",
+            HandshakeRequest {
+                supported_versions: [PROTOCOL_VERSION],
+                host_build_id,
+                purpose: Some("token_recovery"),
             },
         )
     }

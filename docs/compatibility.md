@@ -62,6 +62,9 @@ release artifacts move to the three-mode `llmkitd` binary before v1.0.
   `user_id` is client-local and `binding_version` fences user switches.
 - Existing pre-v1 local SQLite files with `tenant_id` are not silently reinterpreted
   as users. Export/re-enroll through the managed API before adopting this schema.
+- New local SQLite files carry `schema_metadata.version=1`; unknown future
+  versions fail closed. Future migrations must back up first and use one
+  transaction before incrementing the version.
 - New clients use `get_available_targets` and `/v1/available-targets`; the old
   provider-options names remain v1 aliases during migration.
 - Error string values now use the approved normalized vocabulary. Go constant

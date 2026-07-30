@@ -117,7 +117,7 @@ func (*testStores) RefreshToken(context.Context, managed.RefreshTokenRequest) (i
 	return identity.TokenPair{AccessToken: identity.AccessPrefix(identity.TokenGateway) + "next", RefreshToken: identity.RefreshPrefix(identity.TokenGateway) + "next"}, nil
 }
 func (s *testStores) BindUser(_ context.Context, request managed.BindUserRequest) (identity.TokenPair, identity.UserBinding, error) {
-	s.binding = identity.UserBinding{ClientID: request.Principal.ClientID, UserID: request.UserID, BindingVersion: request.ExpectedBindingVersion + 1}
+	s.binding = identity.UserBinding{ClientID: "client", UserID: request.UserID, BindingVersion: request.ExpectedBindingVersion + 1}
 	return identity.TokenPair{AccessToken: identity.AccessPrefix(identity.TokenGateway) + "bound", RefreshToken: identity.RefreshPrefix(identity.TokenGateway) + "bound"}, s.binding, nil
 }
 
@@ -151,6 +151,9 @@ func TestGatewayAuthenticatesAndResolvesDefaultAtRequestTime(t *testing.T) {
 	service.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || provider.authorization != "Bearer secret" {
 		t.Fatalf("status=%d body=%s auth=%q", response.Code, response.Body.String(), provider.authorization)
+	}
+	if bytes.Contains(response.Body.Bytes(), []byte("Bearer secret")) || bytes.Contains(response.Body.Bytes(), []byte("vault:one")) {
+		t.Fatalf("gateway response leaked credential material: %s", response.Body.String())
 	}
 	if stores.principal.UserID != "user" || stores.principal.ClientID != "client" || len(stores.audits) != 1 || stores.audits[0].TargetID != "default" {
 		t.Fatalf("principal=%#v audits=%#v", stores.principal, stores.audits)
@@ -307,7 +310,7 @@ func TestGatewayOIDCExchangeIsControlPlaneOnly(t *testing.T) {
 }
 
 func TestGatewayRefreshAndBindUser(t *testing.T) {
-	token := []byte("33445566778899aabbccddeeff001122")
+	token := []byte(identity.AccessPrefix(identity.TokenGateway) + "33445566778899aabbccddeeff001122")
 	scopes := map[string]struct{}{identity.ScopeTokensRefresh: {}, identity.ScopeUsersBind: {}}
 	auth, _ := identity.SingleToken(token, identity.Principal{ClientID: "client", UserID: "old", BindingVersion: 1, Scopes: scopes})
 	stores := &testStores{binding: identity.UserBinding{ClientID: "client", UserID: "old", BindingVersion: 1}}
@@ -330,6 +333,14 @@ func TestGatewayRefreshAndBindUser(t *testing.T) {
 	service.DataHandler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || stores.binding.UserID != "new" || stores.binding.BindingVersion != 2 {
 		t.Fatalf("bind status=%d body=%s binding=%#v", response.Code, response.Body.String(), stores.binding)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/v1/session/bind-user", bytes.NewBufferString(`{"user_id":"new","expected_binding_version":1}`))
+	request.Header.Set("Authorization", "Bearer "+string(token))
+	request.Header.Set("Idempotency-Key", "bind-1")
+	response = httptest.NewRecorder()
+	service.DataHandler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("idempotent bind recovery status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

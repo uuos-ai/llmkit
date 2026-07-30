@@ -34,6 +34,7 @@ import (
 	"github.com/uuos-ai/llmkit/sidecar/binding"
 	"github.com/uuos-ai/llmkit/sidecar/protocol"
 	"github.com/uuos-ai/llmkit/sidecar/server"
+	"github.com/uuos-ai/llmkit/transport"
 )
 
 var (
@@ -61,7 +62,7 @@ func run(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	registry, err := all.NewRegistry()
+	registry, err := all.NewRegistryWithTransport(transport.New(transport.Config{HTTPClient: endpointpolicy.PublicHTTPClient(nil)}))
 	if err != nil {
 		return err
 	}
@@ -130,13 +131,20 @@ func runLocalService(ctx context.Context, stop context.CancelFunc, config runtim
 	defer cleanup()
 	shutdown := sync.OnceFunc(func() { stop(); _ = listener.Close() })
 	service, err := server.New(server.Config{
-		Authenticator: identity.MultiAuthenticator{tokens, enrollment}, MaxFrameBytes: config.MaxFrameBytes, Shutdown: shutdown,
+		Authenticator: identity.MultiAuthenticator{tokens, enrollment}, RecoveryAuthenticator: tokens, MaxFrameBytes: config.MaxFrameBytes, Shutdown: shutdown,
 		Build: server.BuildInfo{SidecarVersion: version, LLMKitVersion: llmkitVersion, BuildID: buildID, InstanceID: config.InstanceID},
 	})
 	if err != nil {
 		return err
 	}
 	defer service.Close()
+	bindings := identity.NewMemoryUserBindingStore(identity.UserBindingAuthorizerFunc(func(ctx context.Context, _ identity.BindRequest) error {
+		principal, ok := identity.FromContext(ctx)
+		if !ok || !principal.HasScope(identity.ScopeUsersBind) {
+			return identity.ErrBindingUnauthorized
+		}
+		return nil
+	}))
 	if err := service.Register(protocol.MethodEnroll, func(ctx context.Context, _ json.RawMessage) (any, error) {
 		principal, ok := identity.FromContext(ctx)
 		if !ok || !principal.HasScope(identity.ScopeClientsEnroll) {
@@ -147,6 +155,48 @@ func runLocalService(ctx context.Context, stop context.CancelFunc, config runtim
 			return nil, &llmkit.ProviderError{Kind: llmkit.ErrorAuthentication, SafeMessage: "enrollment token is invalid or already used"}
 		}
 		return tokens.Issue(issuedPrincipal)
+	}); err != nil {
+		return err
+	}
+	if err := service.Register(protocol.MethodRefreshToken, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		principal, ok := identity.FromContext(ctx)
+		if !ok || !principal.HasScope(identity.ScopeTokensRefresh) {
+			return nil, &llmkit.ProviderError{Kind: llmkit.ErrorPermissionDenied, SafeMessage: "token refresh is not permitted"}
+		}
+		var request protocol.RefreshTokenRequest
+		if err := json.Unmarshal(payload, &request); err != nil || request.RefreshToken == "" || request.IdempotencyKey == "" {
+			return nil, &llmkit.ProviderError{Kind: llmkit.ErrorInvalidRequest, SafeMessage: "refresh_token and idempotency_key are required"}
+		}
+		return tokens.Refresh(request.RefreshToken, request.IdempotencyKey)
+	}); err != nil {
+		return err
+	}
+	if err := service.Register(protocol.MethodBindUser, func(ctx context.Context, payload json.RawMessage) (any, error) {
+		principal, ok := identity.FromContext(ctx)
+		if !ok || !principal.HasScope(identity.ScopeUsersBind) {
+			return nil, &llmkit.ProviderError{Kind: llmkit.ErrorPermissionDenied, SafeMessage: "user binding is not permitted"}
+		}
+		var request protocol.BindUserRequest
+		if err := json.Unmarshal(payload, &request); err != nil || request.UserID == "" || request.IdempotencyKey == "" {
+			return nil, &llmkit.ProviderError{Kind: llmkit.ErrorInvalidRequest, SafeMessage: "user_id and idempotency_key are required"}
+		}
+		if cached, ok := tokens.RecoverBindingResult(principal.ClientID, request.ExpectedBindingVersion, request.IdempotencyKey); ok {
+			return protocol.BindUserResponse{Tokens: cached.Tokens, Binding: cached.Binding}, nil
+		}
+		_, binding, err := bindings.Bind(ctx, identity.BindRequest{ClientID: principal.ClientID, ClientInstanceID: principal.ClientInstanceID, UserID: request.UserID, ExpectedBindingVersion: request.ExpectedBindingVersion, Proof: request.Proof})
+		if err != nil {
+			return nil, &llmkit.ProviderError{Kind: llmkit.ErrorPermissionDenied, SafeMessage: "user binding was rejected"}
+		}
+		principal.UserID, principal.BindingVersion = binding.UserID, binding.BindingVersion
+		pair, err := tokens.ReplaceClientPrincipal(principal)
+		if err != nil {
+			return nil, err
+		}
+		result := identity.BindingResult{Tokens: pair, Binding: binding}
+		if err := tokens.RememberBindingResult(principal.ClientID, request.ExpectedBindingVersion, request.IdempotencyKey, result); err != nil {
+			return nil, err
+		}
+		return protocol.BindUserResponse{Tokens: result.Tokens, Binding: result.Binding}, nil
 	}); err != nil {
 		return err
 	}

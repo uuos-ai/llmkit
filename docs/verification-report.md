@@ -16,10 +16,15 @@ cross-compile all release targets.
 | Client isolation | Per-token client identity, client-local user binding, cross-client target rejection, atomic client-cache replacement |
 | Routing | Strict explicit target IDs, dynamic default resolution, A2 non-secret local available-target merge |
 | Gateway | Bearer authentication, external target/secret resolution, normalized JSON response and audit metadata |
+| Gateway identity | OIDC control-plane isolation, access/refresh exchange, user-binding fencing, restricted 60-second recovery sessions |
+| Gateway coordination | External session/binding/rate-limit/identity ports; mTLS plus reloadable short-term service token |
 | Configuration | Strict YAML/JSON, unknown-field rejection, default/file/env/CLI precedence, gateway fail-closed validation |
 | Optional local state | SQLite CRUD/isolation, OS-keyring mock, stored request-scoped credential opening and deletion |
 | Local runtime | Real child-process handshake/health/shutdown test over Unix socket and Windows named pipe |
 | Memory/concurrency | `go test -race ./...`; model/capability refresh coalescing and clone isolation |
+| Endpoint security | HTTPS/path/port checks, connect-time public-IP validation, DNS rebinding rejection, cross-origin redirect rejection |
+| Upgrade safety | SQLite schema version fencing, legacy `tenant_id` rejection, unknown future-version rejection |
+| Secret leak | Synthetic credential and upstream-body markers are absent from public errors, gateway responses, target snapshots, and audit records |
 | Fuzzing | Continuous smoke fuzzing for sidecar framing and SSE decoding in CI |
 | Supply chain | Four-target `llmkitd` builds, SHA-256, SPDX SBOM, release manifest, signed GitHub/Sigstore attestations |
 
@@ -40,6 +45,20 @@ Reproduce with:
 
 ```sh
 go test ./sidecar/protocol ./stream/sse -run '^$' -bench . -benchmem
+```
+
+Final acceptance commands executed on 2026-07-30:
+
+```sh
+go test -race ./...
+go vet ./...
+go test ./sidecar/protocol -run '^$' -fuzz FuzzCodecReadRequest -fuzztime 5s
+go test ./stream/sse -run '^$' -fuzz FuzzDecoder -fuzztime 5s
+cargo fmt --manifest-path examples/rust-sidecar-client/Cargo.toml --check
+cargo test --manifest-path examples/rust-sidecar-client/Cargo.toml
+GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/llmkitd
+GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build ./cmd/llmkitd
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/llmkitd
 ```
 
 ## Externally blocked acceptance

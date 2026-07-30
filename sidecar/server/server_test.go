@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/uuos-ai/llmkit/identity"
 	"github.com/uuos-ai/llmkit/sidecar/protocol"
 )
 
@@ -23,6 +24,49 @@ func newTestServer(t *testing.T) *Server {
 	}
 	t.Cleanup(server.Close)
 	return server
+}
+
+func TestRecoveryHandshakeCanOnlyCallRefreshOrBind(t *testing.T) {
+	principal := identity.Principal{ClientID: "client", Scopes: map[string]struct{}{identity.ScopeTokensRefresh: {}, identity.ScopeUsersBind: {}}}
+	server, err := New(Config{
+		Authenticator:         identity.AuthenticatorFunc(func(context.Context, []byte) (identity.Principal, bool) { return identity.Principal{}, false }),
+		RecoveryAuthenticator: recoveryAuthenticatorFunc(func(context.Context, []byte) (identity.Principal, bool) { return principal, true }),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Register(protocol.MethodRefreshToken, func(context.Context, json.RawMessage) (any, error) { return map[string]bool{"ok": true}, nil }); err != nil {
+		t.Fatal(err)
+	}
+	serverSide, clientSide := net.Pipe()
+	go func() { _ = server.ServeConn(context.Background(), serverSide) }()
+	codec := protocol.NewCodec(clientSide, clientSide, 0)
+	payload, _ := json.Marshal(protocol.HandshakeRequest{SupportedVersions: []string{protocol.Version}, Purpose: "token_recovery"})
+	if err := codec.WriteRequest(protocol.Request{Version: protocol.Version, SessionKey: "stale", RequestID: "handshake", Method: protocol.MethodHandshake, Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if response, err := codec.ReadResponse(); err != nil || response.Type != protocol.TypeResult {
+		t.Fatalf("handshake=%#v err=%v", response, err)
+	}
+	if err := codec.WriteRequest(protocol.Request{Version: protocol.Version, SessionKey: "stale", RequestID: "health", Method: protocol.MethodHealth}); err != nil {
+		t.Fatal(err)
+	}
+	if response, err := codec.ReadResponse(); err != nil || response.Type != protocol.TypeError {
+		t.Fatalf("health=%#v err=%v", response, err)
+	}
+	if err := codec.WriteRequest(protocol.Request{Version: protocol.Version, SessionKey: "stale", RequestID: "refresh", Method: protocol.MethodRefreshToken}); err != nil {
+		t.Fatal(err)
+	}
+	if response, err := codec.ReadResponse(); err != nil || response.Type != protocol.TypeResult {
+		t.Fatalf("refresh=%#v err=%v", response, err)
+	}
+	_ = clientSide.Close()
+}
+
+type recoveryAuthenticatorFunc func(context.Context, []byte) (identity.Principal, bool)
+
+func (f recoveryAuthenticatorFunc) AuthenticateRecovery(ctx context.Context, token []byte) (identity.Principal, bool) {
+	return f(ctx, token)
 }
 
 func handshake(t *testing.T, codec *protocol.Codec, key string) protocol.Response {

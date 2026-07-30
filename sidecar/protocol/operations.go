@@ -15,6 +15,23 @@ type Credential struct {
 
 type EnrollClientResponse = identity.TokenPair
 
+type RefreshTokenRequest struct {
+	RefreshToken   string `json:"refresh_token"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+type BindUserRequest struct {
+	UserID                 string `json:"user_id"`
+	ExpectedBindingVersion uint64 `json:"expected_binding_version"`
+	IdempotencyKey         string `json:"idempotency_key"`
+	Proof                  []byte `json:"proof,omitempty"`
+}
+
+type BindUserResponse struct {
+	Tokens  identity.TokenPair   `json:"tokens"`
+	Binding identity.UserBinding `json:"binding"`
+}
+
 type CapabilitiesRequest struct {
 	TargetID string        `json:"target_id,omitempty"`
 	Target   llmkit.Target `json:"target"`

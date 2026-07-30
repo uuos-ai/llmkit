@@ -26,9 +26,6 @@ func (s *Server) exchangeOIDC(writer http.ResponseWriter, request *http.Request)
 }
 
 func (s *Server) refreshToken(writer http.ResponseWriter, request *http.Request) {
-	if !requireScope(writer, request, identity.ScopeTokensRefresh) {
-		return
-	}
 	var input struct {
 		RefreshToken string `json:"refresh_token"`
 	}
@@ -36,9 +33,10 @@ func (s *Server) refreshToken(writer http.ResponseWriter, request *http.Request)
 		return
 	}
 	idempotencyKey := request.Header.Get("Idempotency-Key")
-	accessToken := strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer ")
-	if input.RefreshToken == "" || idempotencyKey == "" {
-		writeAPIError(writer, http.StatusBadRequest, "invalid_request", "refresh_token and Idempotency-Key are required")
+	header := request.Header.Get("Authorization")
+	accessToken := strings.TrimPrefix(header, "Bearer ")
+	if input.RefreshToken == "" || idempotencyKey == "" || !strings.HasPrefix(header, "Bearer ") || !strings.HasPrefix(accessToken, identity.AccessPrefix(identity.TokenGateway)) {
+		writeAPIError(writer, http.StatusBadRequest, "invalid_request", "gateway access token, refresh_token, and Idempotency-Key are required")
 		return
 	}
 	pair, err := s.config.IdentityService.RefreshToken(request.Context(), managed.RefreshTokenRequest{AccessToken: accessToken, RefreshToken: input.RefreshToken, IdempotencyKey: idempotencyKey})
@@ -50,9 +48,6 @@ func (s *Server) refreshToken(writer http.ResponseWriter, request *http.Request)
 }
 
 func (s *Server) bindUser(writer http.ResponseWriter, request *http.Request) {
-	if !requireScope(writer, request, identity.ScopeUsersBind) {
-		return
-	}
 	var input struct {
 		UserID                 string `json:"user_id"`
 		ExpectedBindingVersion uint64 `json:"expected_binding_version"`
@@ -61,12 +56,13 @@ func (s *Server) bindUser(writer http.ResponseWriter, request *http.Request) {
 	if !s.decode(writer, request, &input) {
 		return
 	}
-	if input.UserID == "" || request.Header.Get("Idempotency-Key") == "" {
-		writeAPIError(writer, http.StatusBadRequest, "invalid_request", "user_id and Idempotency-Key are required")
+	header := request.Header.Get("Authorization")
+	accessToken := strings.TrimPrefix(header, "Bearer ")
+	if input.UserID == "" || request.Header.Get("Idempotency-Key") == "" || !strings.HasPrefix(header, "Bearer ") || !strings.HasPrefix(accessToken, identity.AccessPrefix(identity.TokenGateway)) {
+		writeAPIError(writer, http.StatusBadRequest, "invalid_request", "gateway access token, user_id, and Idempotency-Key are required")
 		return
 	}
-	principal, _ := identity.FromContext(request.Context())
-	tokens, binding, err := s.config.IdentityService.BindUser(request.Context(), managed.BindUserRequest{Principal: principal, UserID: input.UserID, ExpectedBindingVersion: input.ExpectedBindingVersion, IdempotencyKey: request.Header.Get("Idempotency-Key"), Proof: input.Proof})
+	tokens, binding, err := s.config.IdentityService.BindUser(request.Context(), managed.BindUserRequest{AccessToken: accessToken, UserID: input.UserID, ExpectedBindingVersion: input.ExpectedBindingVersion, IdempotencyKey: request.Header.Get("Idempotency-Key"), Proof: input.Proof})
 	if err != nil {
 		writeAPIError(writer, http.StatusConflict, "user_binding_conflict", "user binding could not be changed")
 		return

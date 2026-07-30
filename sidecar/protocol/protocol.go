@@ -22,6 +22,8 @@ const (
 	MethodShutdown           Method = "shutdown"
 	MethodCancel             Method = "cancel"
 	MethodEnroll             Method = "enroll_client"
+	MethodRefreshToken       Method = "refresh_token"
+	MethodBindUser           Method = "bind_user"
 	MethodListCapabilities   Method = "list_capabilities"
 	MethodListModels         Method = "list_models"
 	MethodValidateCredential Method = "validate_credential"
@@ -75,6 +77,7 @@ type Error struct {
 type HandshakeRequest struct {
 	SupportedVersions []string `json:"supported_versions"`
 	HostBuildID       string   `json:"host_build_id,omitempty"`
+	Purpose           string   `json:"purpose,omitempty"`
 }
 
 type HandshakeResponse struct {

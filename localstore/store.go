@@ -52,9 +52,44 @@ func Open(path, instanceID string) (*Store, error) {
 }
 
 func (s *Store) initialize() error {
-	_, err := s.db.Exec(`
-PRAGMA busy_timeout=5000;
-PRAGMA foreign_keys=ON;
+	if _, err := s.db.Exec(`PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;`); err != nil {
+		return errors.New("localstore: SQLite safety pragmas could not be enabled")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return errors.New("localstore: SQLite schema transaction could not start")
+	}
+	defer tx.Rollback()
+	var existing int
+	if err := tx.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='custom_providers'`).Scan(&existing); err != nil {
+		return errors.New("localstore: SQLite schema could not be inspected")
+	}
+	if existing != 0 {
+		rows, err := tx.Query(`PRAGMA table_info(custom_providers)`)
+		if err != nil {
+			return errors.New("localstore: SQLite schema could not be inspected")
+		}
+		columns := map[string]bool{}
+		for rows.Next() {
+			var ordinal, notNull, primaryKey int
+			var name, columnType string
+			var defaultValue any
+			if err := rows.Scan(&ordinal, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+				_ = rows.Close()
+				return errors.New("localstore: SQLite schema could not be inspected")
+			}
+			columns[name] = true
+		}
+		_ = rows.Close()
+		if !columns["client_id"] || !columns["user_id"] || columns["tenant_id"] {
+			return errors.New("localstore: unsupported pre-v1 tenant schema; export and re-enroll before upgrade")
+		}
+	}
+	_, err = tx.Exec(`
+CREATE TABLE IF NOT EXISTS schema_metadata (
+ singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+ version INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS custom_providers (
  client_id TEXT NOT NULL,
  user_id TEXT NOT NULL,
@@ -77,6 +112,20 @@ CREATE TABLE IF NOT EXISTS custom_targets (
 );`)
 	if err != nil {
 		return errors.New("localstore: SQLite schema could not be initialized")
+	}
+	var version int
+	err = tx.QueryRow(`SELECT version FROM schema_metadata WHERE singleton=1`).Scan(&version)
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, err := tx.Exec(`INSERT INTO schema_metadata(singleton,version) VALUES(1,1)`); err != nil {
+			return errors.New("localstore: SQLite schema version could not be initialized")
+		}
+	} else if err != nil {
+		return errors.New("localstore: SQLite schema version could not be read")
+	} else if version != 1 {
+		return errors.New("localstore: unsupported SQLite schema version")
+	}
+	if err := tx.Commit(); err != nil {
+		return errors.New("localstore: SQLite schema transaction could not commit")
 	}
 	return nil
 }

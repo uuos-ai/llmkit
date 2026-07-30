@@ -9,7 +9,9 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -93,6 +95,16 @@ type familyRecord struct {
 	revoked              bool
 }
 
+type BindingResult struct {
+	Tokens  TokenPair   `json:"tokens"`
+	Binding UserBinding `json:"binding"`
+}
+
+type encryptedRecovery struct {
+	value     []byte
+	expiresAt time.Time
+}
+
 // TokenManager is an in-memory reference implementation of the token-family
 // contract. Gateway hosts should persist equivalent records atomically in
 // SessionStore and keep the pepper in KMS/HSM/SecretStore.
@@ -105,6 +117,7 @@ type TokenManager struct {
 	mu                                   sync.Mutex
 	access, refresh                      map[string]*tokenRecord
 	families                             map[string]*familyRecord
+	bindingRecovery                      map[string]encryptedRecovery
 }
 
 func NewTokenManager(config TokenManagerConfig) (*TokenManager, error) {
@@ -128,7 +141,7 @@ func NewTokenManager(config TokenManagerConfig) (*TokenManager, error) {
 	}
 	return &TokenManager{mode: config.Mode, pepper: append([]byte(nil), config.Pepper...), accessTTL: config.AccessTTL,
 		familyTTL: config.FamilyTTL, idempotencyTTL: config.IdempotencyTTL, now: config.Now, aead: aead,
-		access: make(map[string]*tokenRecord), refresh: make(map[string]*tokenRecord), families: make(map[string]*familyRecord)}, nil
+		access: make(map[string]*tokenRecord), refresh: make(map[string]*tokenRecord), families: make(map[string]*familyRecord), bindingRecovery: make(map[string]encryptedRecovery)}, nil
 }
 
 func (m *TokenManager) Issue(principal Principal) (TokenPair, error) {
@@ -159,6 +172,22 @@ func (m *TokenManager) Authenticate(_ context.Context, token []byte) (Principal,
 		return Principal{}, false
 	}
 	return clonePrincipal(record.principal), true
+}
+
+func (m *TokenManager) AuthenticateRecovery(_ context.Context, token []byte) (Principal, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	id, secret, ok := parseToken(string(token), AccessPrefix(m.mode))
+	if !ok {
+		return Principal{}, false
+	}
+	record := m.access[id]
+	if record == nil || !record.used || !m.validSecret(record, secret) || !m.now().Before(record.cacheExpiresAt) {
+		return Principal{}, false
+	}
+	principal := clonePrincipal(record.principal)
+	principal.Scopes = map[string]struct{}{ScopeTokensRefresh: {}, ScopeUsersBind: {}}
+	return principal, true
 }
 
 // Refresh rotates access and refresh tokens together. The refresh token is
@@ -207,6 +236,9 @@ func (m *TokenManager) Refresh(refreshToken, idempotencyKey string) (TokenPair, 
 		return TokenPair{}, err
 	}
 	record.idempotencyKey, record.cached, record.cacheExpiresAt = idempotencyKey, cached, now.Add(m.idempotencyTTL)
+	if access := m.accessByFamilyGenerationLocked(record.familyID, record.generation); access != nil {
+		access.cacheExpiresAt = record.cacheExpiresAt
+	}
 	return pair, nil
 }
 
@@ -214,6 +246,77 @@ func (m *TokenManager) RevokeFamily(familyID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.revokeFamilyLocked(familyID)
+}
+
+// ReplaceClientPrincipal revokes every token family for a client before
+// issuing the first family for a new binding version.
+func (m *TokenManager) ReplaceClientPrincipal(principal Principal) (TokenPair, error) {
+	if principal.ClientID == "" {
+		return TokenPair{}, ErrTokenInvalid
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now().UTC()
+	for _, record := range m.access {
+		if record.principal.ClientID == principal.ClientID {
+			record.used = true
+			record.cacheExpiresAt = now.Add(m.idempotencyTTL)
+			m.revokeFamilyLocked(record.familyID)
+		}
+	}
+	familyID, err := randomText(16)
+	if err != nil {
+		return TokenPair{}, err
+	}
+	m.families[familyID] = &familyRecord{createdAt: now, expiresAt: now.Add(m.familyTTL), generation: 1}
+	return m.issueLocked(principal, familyID, 1, now)
+}
+
+func (m *TokenManager) RememberBindingResult(clientID string, expected uint64, idempotencyKey string, result BindingResult) error {
+	if clientID == "" || idempotencyKey == "" {
+		return ErrTokenInvalid
+	}
+	plain, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	defer clear(plain)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	nonce := make([]byte, m.aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return err
+	}
+	key := m.bindingRecoveryKey(clientID, expected, idempotencyKey)
+	m.bindingRecovery[key] = encryptedRecovery{value: m.aead.Seal(nonce, nonce, plain, nil), expiresAt: m.now().UTC().Add(m.idempotencyTTL)}
+	return nil
+}
+
+func (m *TokenManager) RecoverBindingResult(clientID string, expected uint64, idempotencyKey string) (BindingResult, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := m.bindingRecoveryKey(clientID, expected, idempotencyKey)
+	cached, ok := m.bindingRecovery[key]
+	if !ok || !m.now().Before(cached.expiresAt) || len(cached.value) < m.aead.NonceSize() {
+		delete(m.bindingRecovery, key)
+		return BindingResult{}, false
+	}
+	plain, err := m.aead.Open(nil, cached.value[:m.aead.NonceSize()], cached.value[m.aead.NonceSize():], nil)
+	if err != nil {
+		return BindingResult{}, false
+	}
+	defer clear(plain)
+	var result BindingResult
+	if json.Unmarshal(plain, &result) != nil {
+		return BindingResult{}, false
+	}
+	return result, true
+}
+
+func (m *TokenManager) bindingRecoveryKey(clientID string, expected uint64, idempotencyKey string) string {
+	data := []byte(clientID + "\x00" + idempotencyKey + "\x00" + strconv.FormatUint(expected, 10))
+	defer clear(data)
+	return base64.RawURLEncoding.EncodeToString(hmacDigest(m.pepper, data))
 }
 
 func (m *TokenManager) issueLocked(principal Principal, familyID string, generation uint64, now time.Time) (TokenPair, error) {
@@ -325,3 +428,4 @@ func (m *TokenManager) decryptPair(data []byte) (TokenPair, error) {
 }
 
 var _ Authenticator = (*TokenManager)(nil)
+var _ RecoveryAuthenticator = (*TokenManager)(nil)

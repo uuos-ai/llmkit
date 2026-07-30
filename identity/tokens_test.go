@@ -49,3 +49,40 @@ func TestRefreshExpiresWithAccess(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestReplaceClientPrincipalRevokesEveryOldBindingFamily(t *testing.T) {
+	manager, err := NewTokenManager(TokenManagerConfig{Mode: TokenLocal, Pepper: []byte(strings.Repeat("p", 32)), AccessTTL: time.Minute, FamilyTTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _ := manager.Issue(Principal{ClientID: "client", ClientInstanceID: "one", UserID: "old", BindingVersion: 1})
+	second, _ := manager.Issue(Principal{ClientID: "client", ClientInstanceID: "two", UserID: "old", BindingVersion: 1})
+	other, _ := manager.Issue(Principal{ClientID: "other", UserID: "old", BindingVersion: 1})
+	replacement, err := manager.ReplaceClientPrincipal(Principal{ClientID: "client", ClientInstanceID: "one", UserID: "new", BindingVersion: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, old := range []TokenPair{first, second} {
+		if _, ok := manager.Authenticate(context.Background(), []byte(old.AccessToken)); ok {
+			t.Fatal("old client family remained valid")
+		}
+	}
+	if principal, ok := manager.Authenticate(context.Background(), []byte(replacement.AccessToken)); !ok || principal.UserID != "new" || principal.BindingVersion != 2 {
+		t.Fatalf("replacement principal=%#v ok=%v", principal, ok)
+	}
+	if _, ok := manager.Authenticate(context.Background(), []byte(other.AccessToken)); !ok {
+		t.Fatal("unrelated client family was revoked")
+	}
+	recovery, ok := manager.AuthenticateRecovery(context.Background(), []byte(first.AccessToken))
+	if !ok || !recovery.HasScope(ScopeUsersBind) || recovery.HasScope(ScopeInferenceExecute) {
+		t.Fatalf("recovery principal=%#v ok=%v", recovery, ok)
+	}
+	result := BindingResult{Tokens: replacement, Binding: UserBinding{ClientID: "client", UserID: "new", BindingVersion: 2}}
+	if err := manager.RememberBindingResult("client", 1, "bind-idempotency", result); err != nil {
+		t.Fatal(err)
+	}
+	recovered, ok := manager.RecoverBindingResult("client", 1, "bind-idempotency")
+	if !ok || recovered.Tokens.AccessToken != replacement.AccessToken || recovered.Binding.UserID != "new" {
+		t.Fatalf("recovered=%#v ok=%v", recovered, ok)
+	}
+}

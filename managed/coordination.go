@@ -73,11 +73,11 @@ type RefreshTokenRequest struct {
 }
 
 type BindUserRequest struct {
-	Principal              identity.Principal `json:"principal"`
-	UserID                 string             `json:"user_id"`
-	ExpectedBindingVersion uint64             `json:"expected_binding_version"`
-	IdempotencyKey         string             `json:"idempotency_key"`
-	Proof                  []byte             `json:"proof,omitempty"`
+	AccessToken            string `json:"access_token"`
+	UserID                 string `json:"user_id"`
+	ExpectedBindingVersion uint64 `json:"expected_binding_version"`
+	IdempotencyKey         string `json:"idempotency_key"`
+	Proof                  []byte `json:"proof,omitempty"`
 }
 
 // IdentityService is the strongly consistent gateway authority for token

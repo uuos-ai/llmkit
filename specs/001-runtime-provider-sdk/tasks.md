@@ -25,4 +25,4 @@
 - [x] T017 [P1] 为所有 P0 Provider 补齐成熟度 manifest 与完整统一 conformance matrix
 - [x] T018 [P1] 完成 Qianfan/SiliconFlow/Azure/Bedrock/Vertex P1 adapters
 - [x] T019 [P1] 扩展 Rust client；生成 TypeScript/Python schema DTO
-- [ ] T020 [P1] 完整 race、跨平台、secret leak、SSRF/DNS rebinding 与升级测试
+- [x] T020 [P1] 完整 race、跨平台、secret leak、SSRF/DNS rebinding 与升级测试

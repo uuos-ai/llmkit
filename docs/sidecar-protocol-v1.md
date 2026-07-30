@@ -17,6 +17,13 @@ Status: implementation baseline (`1.0`).
   Every later request repeats the current token and protocol version.
   Local-service maps each token family to a trusted client identity and client-local current user binding.
 
+After refresh or user switching, the previous access token cannot execute data
+operations. For a lost response, a client may reconnect within the 60-second
+idempotency window using handshake `purpose: "token_recovery"`; that session is
+hard-restricted to `refresh_token` and `bind_user`. Exact idempotency keys return
+the encrypted cached token/binding result, while a different refresh key is
+treated as replay.
+
 ## Envelope
 
 Requests contain `version`, `session_key`, `request_id`, `method`, and optional
@@ -42,6 +49,8 @@ so a slow local consumer applies bounded backpressure to upstream `Recv`.
 - `shutdown`
 - `cancel`
 - `enroll_client` (local-service bootstrap only)
+- `refresh_token` (local-service)
+- `bind_user` (local-service; returns a replacement token pair)
 - `list_capabilities`
 - `list_models`
 - `validate_credential`

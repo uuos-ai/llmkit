@@ -57,6 +57,12 @@ type Authenticator interface {
 	Authenticate(context.Context, []byte) (Principal, bool)
 }
 
+// RecoveryAuthenticator accepts an immediately-invalidated access token only
+// for a protocol session restricted to refresh/bind idempotency recovery.
+type RecoveryAuthenticator interface {
+	AuthenticateRecovery(context.Context, []byte) (Principal, bool)
+}
+
 type AuthenticatorFunc func(context.Context, []byte) (Principal, bool)
 
 func (f AuthenticatorFunc) Authenticate(ctx context.Context, token []byte) (Principal, bool) {

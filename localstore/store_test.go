@@ -2,6 +2,7 @@ package localstore
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"path/filepath"
 	"testing"
@@ -59,5 +60,35 @@ func TestSQLiteCatalogAndOSSecretStoreAreClientIsolated(t *testing.T) {
 	}
 	if _, err := store.ResolveTarget(context.Background(), principal, "custom-model"); err == nil {
 		t.Fatal("expected deleted target")
+	}
+}
+
+func TestOpenRejectsLegacyTenantSchemaWithoutReinterpretation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.sqlite")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`CREATE TABLE custom_providers (tenant_id TEXT NOT NULL, provider_id TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = database.Close()
+	if _, err := Open(path, "test"); err == nil {
+		t.Fatal("legacy tenant schema was silently reinterpreted")
+	}
+}
+
+func TestOpenRejectsUnknownFutureSchemaVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "future.sqlite")
+	store, err := Open(path, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE schema_metadata SET version=999 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Close()
+	if _, err := Open(path, "test"); err == nil {
+		t.Fatal("future schema version was accepted")
 	}
 }

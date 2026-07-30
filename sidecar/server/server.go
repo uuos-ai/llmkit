@@ -36,16 +36,18 @@ type BuildInfo struct {
 }
 
 type Config struct {
-	SessionKey    []byte
-	Authenticator identity.Authenticator
-	MaxFrameBytes uint32
-	Build         BuildInfo
-	Shutdown      func()
+	SessionKey            []byte
+	Authenticator         identity.Authenticator
+	RecoveryAuthenticator identity.RecoveryAuthenticator
+	MaxFrameBytes         uint32
+	Build                 BuildInfo
+	Shutdown              func()
 }
 
 type Server struct {
 	sessionKey []byte
 	auth       identity.Authenticator
+	recovery   identity.RecoveryAuthenticator
 	maxFrame   uint32
 	build      BuildInfo
 	shutdown   func()
@@ -74,7 +76,7 @@ func New(config Config) (*Server, error) {
 		}
 	}
 	return &Server{
-		sessionKey: key, auth: authenticator, maxFrame: config.MaxFrameBytes,
+		sessionKey: key, auth: authenticator, recovery: config.RecoveryAuthenticator, maxFrame: config.MaxFrameBytes,
 		build: config.Build, shutdown: config.Shutdown,
 		handlers: make(map[protocol.Method]Handler),
 	}, nil
@@ -116,6 +118,14 @@ func (s *Server) ServeConn(ctx context.Context, connection io.ReadWriteCloser) e
 		return err
 	}
 	principal, authenticated := s.auth.Authenticate(ctx, []byte(first.SessionKey))
+	recoveryOnly := false
+	if first.Method == protocol.MethodHandshake && !authenticated && s.recovery != nil {
+		var handshake protocol.HandshakeRequest
+		if json.Unmarshal(first.Payload, &handshake) == nil && handshake.Purpose == "token_recovery" {
+			principal, authenticated = s.recovery.AuthenticateRecovery(ctx, []byte(first.SessionKey))
+			recoveryOnly = authenticated
+		}
+	}
 	if first.Method != protocol.MethodHandshake || !authenticated {
 		_ = writer.write(errorResponse(first.RequestID, "authentication", "sidecar handshake rejected"))
 		return errors.New("sidecar server: handshake rejected")
@@ -146,6 +156,12 @@ func (s *Server) ServeConn(ctx context.Context, connection io.ReadWriteCloser) e
 			return readErr
 		}
 		requestPrincipal, ok := s.auth.Authenticate(connectionCtx, []byte(request.SessionKey))
+		if !ok && recoveryOnly && (request.Method == protocol.MethodRefreshToken || request.Method == protocol.MethodBindUser) {
+			requestPrincipal, ok = s.recovery.AuthenticateRecovery(connectionCtx, []byte(request.SessionKey))
+		}
+		if recoveryOnly && request.Method != protocol.MethodRefreshToken && request.Method != protocol.MethodBindUser && request.Method != protocol.MethodCancel {
+			ok = false
+		}
 		if !ok || requestPrincipal.Key() != principal.Key() || request.Version != protocol.Version {
 			_ = writer.write(errorResponse(request.RequestID, "authentication", "sidecar request rejected"))
 			continue
