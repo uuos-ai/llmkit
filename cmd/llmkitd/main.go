@@ -24,6 +24,7 @@ import (
 	"github.com/uuos-ai/llmkit/identity"
 	"github.com/uuos-ai/llmkit/localstore"
 	"github.com/uuos-ai/llmkit/managed/httpbackend"
+	"github.com/uuos-ai/llmkit/managed/httpcoord"
 	"github.com/uuos-ai/llmkit/providers/all"
 	"github.com/uuos-ai/llmkit/routing"
 	"github.com/uuos-ai/llmkit/runtimeconfig"
@@ -186,34 +187,51 @@ func runGateway(ctx context.Context, config runtimeconfig.Config, registry *llmk
 	if err != nil {
 		return err
 	}
+	coordination, err := httpcoord.New(config.Storage.CoordinationStore, config.TLS.CertificateFile, config.TLS.PrivateKeyFile)
+	if err != nil {
+		return err
+	}
 	service, err := gateway.New(gateway.Config{
 		InstanceID: config.InstanceID, Registry: registry, Authenticator: authenticator, ConfigStore: backend,
 		SecretStore: backend, AuditStore: backend, CustomProviders: backend,
+		SessionStore: coordination, BindingStore: coordination, RateLimitStore: coordination,
 		EndpointPolicy: endpointpolicy.PublicHTTPS(ctx, nil), MaxBodyBytes: int64(config.MaxFrameBytes),
 	})
 	if err != nil {
 		return err
 	}
-	httpServer := &http.Server{
-		Addr: config.Listen, Handler: service.Handler(), ReadHeaderTimeout: 10 * time.Second,
+	dataServer := &http.Server{
+		Addr: config.Listen, Handler: service.DataHandler(), ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout: 60 * time.Second, WriteTimeout: 0, IdleTimeout: 90 * time.Second,
 		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
 	}
-	done := make(chan error, 1)
-	go func() { done <- httpServer.ListenAndServeTLS(config.TLS.CertificateFile, config.TLS.PrivateKeyFile) }()
+	adminServer := &http.Server{
+		Addr: config.AdminListen, Handler: service.ControlHandler(), ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout: 60 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 90 * time.Second,
+		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+	}
+	done := make(chan error, 2)
+	go func() { done <- dataServer.ListenAndServeTLS(config.TLS.CertificateFile, config.TLS.PrivateKeyFile) }()
+	go func() { done <- adminServer.ListenAndServeTLS(config.TLS.CertificateFile, config.TLS.PrivateKeyFile) }()
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		if err := dataServer.Shutdown(shutdownCtx); err != nil {
 			return errors.New("llmkitd: gateway shutdown timed out")
 		}
-		err := <-done
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
+		if err := adminServer.Shutdown(shutdownCtx); err != nil {
+			return errors.New("llmkitd: gateway admin shutdown timed out")
 		}
-		return err
+		for range 2 {
+			if err := <-done; err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return err
+			}
+		}
+		return nil
 	case err := <-done:
+		_ = dataServer.Close()
+		_ = adminServer.Close()
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
@@ -279,6 +297,7 @@ func parseFlags(arguments []string) (string, runtimeconfig.Overrides, error) {
 	set.Var(optionalString{&overrides.InstanceID}, "instance-id", "independent daemon instance ID")
 	set.Var(optionalString{&overrides.Socket}, "socket", "Unix socket or Windows named pipe")
 	set.Var(optionalString{&overrides.Listen}, "listen", "gateway HTTPS listen address")
+	set.Var(optionalString{&overrides.AdminListen}, "admin-listen", "gateway control-plane HTTPS listen address")
 	set.Var(optionalInt{&overrides.ParentPID}, "parent-pid", "sidecar host process ID")
 	set.Var(optionalString{&overrides.ClientTokenHashFile}, "client-token-hash-file", "client token hash file")
 	set.Var(optionalString{&overrides.BusinessTargetsURL}, "business-targets-url", "business available-target-list HTTPS URL")
@@ -289,6 +308,7 @@ func parseFlags(arguments []string) (string, runtimeconfig.Overrides, error) {
 	set.Var(optionalString{&overrides.ConfigStore}, "config-store", "external HTTPS ConfigStore URL")
 	set.Var(optionalString{&overrides.SecretStore}, "secret-store", "external HTTPS SecretStore URL")
 	set.Var(optionalString{&overrides.AuditStore}, "audit-store", "external HTTPS AuditStore URL")
+	set.Var(optionalString{&overrides.CoordinationStore}, "coordination-store", "external HTTPS session, binding, and rate-limit store URL")
 	set.Var(optionalString{&overrides.SQLitePath}, "sqlite-path", "optional local-service SQLite path")
 	if err := set.Parse(arguments); err != nil {
 		return "", runtimeconfig.Overrides{}, fmt.Errorf("llmkitd: parse flags: %w", err)

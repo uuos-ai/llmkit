@@ -27,6 +27,9 @@ type Config struct {
 	SecretStore     managed.SecretStore
 	AuditStore      managed.AuditStore
 	BlobStore       managed.BlobStore
+	SessionStore    managed.SessionStore
+	BindingStore    identity.UserBindingStore
+	RateLimitStore  managed.RateLimitStore
 	CustomProviders managed.CustomProviderStore
 	EndpointPolicy  func(llmkit.Target) error
 	MaxBodyBytes    int64
@@ -40,8 +43,8 @@ type Server struct {
 }
 
 func New(config Config) (*Server, error) {
-	if config.Registry == nil || config.Authenticator == nil || config.ConfigStore == nil || config.SecretStore == nil || config.AuditStore == nil {
-		return nil, errors.New("gateway: registry, authenticator, and external config, secret, and audit stores are required")
+	if config.Registry == nil || config.Authenticator == nil || config.ConfigStore == nil || config.SecretStore == nil || config.AuditStore == nil || config.SessionStore == nil || config.BindingStore == nil || config.RateLimitStore == nil {
+		return nil, errors.New("gateway: registry, authenticator, and external config, secret, audit, session, binding, and rate-limit stores are required")
 	}
 	if config.MaxBodyBytes <= 0 {
 		config.MaxBodyBytes = 8 << 20
@@ -52,10 +55,13 @@ func New(config Config) (*Server, error) {
 	data.Handle("GET /v1/available-targets", server.authenticate(http.HandlerFunc(server.providerOptions)))
 	data.Handle("GET /v1/provider-options", server.authenticate(http.HandlerFunc(server.providerOptions)))
 	data.Handle("GET /v1/models", server.authenticate(http.HandlerFunc(server.openAIModels)))
-	data.Handle("POST /v1/generate", server.authenticate(http.HandlerFunc(server.generate)))
-	data.Handle("POST /v1/embed", server.authenticate(http.HandlerFunc(server.embed)))
-	data.Handle("POST /v1/rerank", server.authenticate(http.HandlerFunc(server.rerank)))
-	data.Handle("POST /v1/moderate", server.authenticate(http.HandlerFunc(server.moderate)))
+	data.Handle("POST /v1/chat/completions", server.authenticate(server.rateLimit(http.HandlerFunc(server.openAIChat))))
+	data.Handle("POST /v1/responses", server.authenticate(server.rateLimit(http.HandlerFunc(server.openAIResponses))))
+	data.Handle("POST /v1/embeddings", server.authenticate(server.rateLimit(http.HandlerFunc(server.openAIEmbeddings))))
+	data.Handle("POST /v1/generate", server.authenticate(server.rateLimit(http.HandlerFunc(server.generate))))
+	data.Handle("POST /v1/embed", server.authenticate(server.rateLimit(http.HandlerFunc(server.embed))))
+	data.Handle("POST /v1/rerank", server.authenticate(server.rateLimit(http.HandlerFunc(server.rerank))))
+	data.Handle("POST /v1/moderate", server.authenticate(server.rateLimit(http.HandlerFunc(server.moderate))))
 	data.Handle("POST /v1/blobs", server.authenticate(http.HandlerFunc(server.putBlob)))
 	data.Handle("DELETE /v1/blobs/{blob_ref}", server.authenticate(http.HandlerFunc(server.deleteBlob)))
 	control := http.NewServeMux()
@@ -126,7 +132,49 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			writeAPIError(writer, http.StatusUnauthorized, "authentication", "client token is invalid")
 			return
 		}
+		binding, bound, err := s.config.BindingStore.Current(request.Context(), principal.ClientID)
+		if err != nil {
+			writeAPIError(writer, http.StatusServiceUnavailable, "coordination_unavailable", "user binding could not be verified")
+			return
+		}
+		if principal.UserID != "" && (!bound || binding.UserID != principal.UserID || binding.BindingVersion != principal.BindingVersion) {
+			writeAPIError(writer, http.StatusUnauthorized, "user_binding_changed", "user binding changed")
+			return
+		}
+		if principal.UserID == "" && bound {
+			principal.UserID, principal.BindingVersion = binding.UserID, binding.BindingVersion
+		}
 		next.ServeHTTP(writer, request.WithContext(identity.WithPrincipal(request.Context(), principal)))
+	})
+}
+
+func (s *Server) rateLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		principal, _ := identity.FromContext(request.Context())
+		lease, err := s.config.RateLimitStore.Reserve(request.Context(), managed.RateLimitRequest{
+			ClientID: principal.ClientID, UserID: principal.UserID, Requests: 1, Concurrency: 1,
+		})
+		if err != nil {
+			writeAPIError(writer, http.StatusServiceUnavailable, "coordination_unavailable", "rate limit could not be checked")
+			return
+		}
+		if !lease.Allowed {
+			if lease.RetryAfter > 0 {
+				writer.Header().Set("Retry-After", fmt.Sprintf("%.0f", lease.RetryAfter.Seconds()))
+			}
+			writeAPIError(writer, http.StatusTooManyRequests, string(llmkit.ErrorRateLimited), "rate limit exceeded")
+			return
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = s.config.RateLimitStore.Release(context.WithoutCancel(request.Context()), lease.LeaseID)
+			}
+		}()
+		next.ServeHTTP(writer, request)
+		if err := s.config.RateLimitStore.Commit(context.WithoutCancel(request.Context()), lease.LeaseID, managed.RateLimitUsage{Requests: 1}); err == nil {
+			committed = true
+		}
 	})
 }
 

@@ -35,10 +35,11 @@ type TLSConfig struct {
 }
 
 type StorageConfig struct {
-	ConfigStore string `json:"config_store" yaml:"config_store"`
-	SecretStore string `json:"secret_store" yaml:"secret_store"`
-	AuditStore  string `json:"audit_store" yaml:"audit_store"`
-	SQLitePath  string `json:"sqlite_path" yaml:"sqlite_path"`
+	ConfigStore       string `json:"config_store" yaml:"config_store"`
+	SecretStore       string `json:"secret_store" yaml:"secret_store"`
+	AuditStore        string `json:"audit_store" yaml:"audit_store"`
+	CoordinationStore string `json:"coordination_store" yaml:"coordination_store"`
+	SQLitePath        string `json:"sqlite_path" yaml:"sqlite_path"`
 }
 
 type Config struct {
@@ -46,6 +47,7 @@ type Config struct {
 	InstanceID          string             `json:"instance_id" yaml:"instance_id"`
 	Socket              string             `json:"socket" yaml:"socket"`
 	Listen              string             `json:"listen" yaml:"listen"`
+	AdminListen         string             `json:"admin_listen" yaml:"admin_listen"`
 	ParentPID           int                `json:"parent_pid" yaml:"parent_pid"`
 	ClientTokenHashFile string             `json:"client_token_hash_file" yaml:"client_token_hash_file"`
 	BusinessTargetsURL  string             `json:"business_targets_url" yaml:"business_targets_url"`
@@ -60,6 +62,7 @@ type Overrides struct {
 	InstanceID          *string
 	Socket              *string
 	Listen              *string
+	AdminListen         *string
 	ParentPID           *int
 	ClientTokenHashFile *string
 	BusinessTargetsURL  *string
@@ -70,6 +73,7 @@ type Overrides struct {
 	ConfigStore         *string
 	SecretStore         *string
 	AuditStore          *string
+	CoordinationStore   *string
 	SQLitePath          *string
 }
 
@@ -131,8 +135,11 @@ func (c Config) Validate() error {
 			return errors.New("llmkitd config: managed local-service requires business_targets_url or storage.sqlite_path")
 		}
 	case ModeGateway:
-		if c.Listen == "" || c.ClientTokenHashFile == "" {
-			return errors.New("llmkitd config: gateway requires listen and client_token_hash_file")
+		if c.Listen == "" || c.AdminListen == "" || c.ClientTokenHashFile == "" {
+			return errors.New("llmkitd config: gateway requires distinct data/admin listen addresses and client_token_hash_file")
+		}
+		if c.Listen == c.AdminListen {
+			return errors.New("llmkitd config: gateway data and admin listen addresses must differ")
 		}
 		if c.TLS.CertificateFile == "" || c.TLS.PrivateKeyFile == "" {
 			return errors.New("llmkitd config: gateway requires a TLS certificate and private key")
@@ -140,8 +147,8 @@ func (c Config) Validate() error {
 		if c.CustomProviderSync != SyncManaged {
 			return errors.New("llmkitd config: gateway requires custom_provider_sync=managed")
 		}
-		if c.Storage.ConfigStore == "" || c.Storage.SecretStore == "" || c.Storage.AuditStore == "" {
-			return errors.New("llmkitd config: gateway requires config, secret, and audit stores")
+		if c.Storage.ConfigStore == "" || c.Storage.SecretStore == "" || c.Storage.AuditStore == "" || c.Storage.CoordinationStore == "" {
+			return errors.New("llmkitd config: gateway requires config, secret, audit, and coordination stores")
 		}
 	default:
 		return fmt.Errorf("llmkitd config: unsupported mode %q", c.Mode)
@@ -187,6 +194,7 @@ func applyEnvironment(config *Config, lookup LookupEnv) error {
 	setString("LLMKIT_INSTANCE_ID", &config.InstanceID)
 	setString("LLMKIT_SOCKET", &config.Socket)
 	setString("LLMKIT_LISTEN", &config.Listen)
+	setString("LLMKIT_ADMIN_LISTEN", &config.AdminListen)
 	setString("LLMKIT_CLIENT_TOKEN_HASH_FILE", &config.ClientTokenHashFile)
 	setString("LLMKIT_BUSINESS_TARGETS_URL", &config.BusinessTargetsURL)
 	setString("LLMKIT_TLS_CERTIFICATE_FILE", &config.TLS.CertificateFile)
@@ -194,6 +202,7 @@ func applyEnvironment(config *Config, lookup LookupEnv) error {
 	setString("LLMKIT_CONFIG_STORE", &config.Storage.ConfigStore)
 	setString("LLMKIT_SECRET_STORE", &config.Storage.SecretStore)
 	setString("LLMKIT_AUDIT_STORE", &config.Storage.AuditStore)
+	setString("LLMKIT_COORDINATION_STORE", &config.Storage.CoordinationStore)
 	setString("LLMKIT_SQLITE_PATH", &config.Storage.SQLitePath)
 	if value, ok := lookup("LLMKIT_CUSTOM_PROVIDER_SYNC"); ok {
 		config.CustomProviderSync = CustomProviderSync(value)
@@ -228,6 +237,9 @@ func applyOverrides(config *Config, overrides Overrides) {
 	if overrides.Listen != nil {
 		config.Listen = *overrides.Listen
 	}
+	if overrides.AdminListen != nil {
+		config.AdminListen = *overrides.AdminListen
+	}
 	if overrides.ParentPID != nil {
 		config.ParentPID = *overrides.ParentPID
 	}
@@ -257,6 +269,9 @@ func applyOverrides(config *Config, overrides Overrides) {
 	}
 	if overrides.AuditStore != nil {
 		config.Storage.AuditStore = *overrides.AuditStore
+	}
+	if overrides.CoordinationStore != nil {
+		config.Storage.CoordinationStore = *overrides.CoordinationStore
 	}
 	if overrides.SQLitePath != nil {
 		config.Storage.SQLitePath = *overrides.SQLitePath

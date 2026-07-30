@@ -22,11 +22,11 @@ type UserBinding struct {
 }
 
 type BindRequest struct {
-	ClientID               string
-	ClientInstanceID       string
-	UserID                 string
-	ExpectedBindingVersion uint64
-	Proof                  []byte
+	ClientID               string `json:"client_id"`
+	ClientInstanceID       string `json:"client_instance_id,omitempty"`
+	UserID                 string `json:"user_id"`
+	ExpectedBindingVersion uint64 `json:"expected_binding_version"`
+	Proof                  []byte `json:"proof,omitempty"`
 }
 
 // UserBindingAuthorizer lets a host apply mode-specific trust: launch-token

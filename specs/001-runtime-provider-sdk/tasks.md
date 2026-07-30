@@ -17,9 +17,9 @@
 
 - [x] T011 增加原生 rerank/moderate interfaces、IPC 与 gateway handlers
 - [ ] T011A [P1] 增加首个 rerank/moderate Provider adapter 与 conformance fixtures
-- [ ] T012 [P1] 完成 OpenAI chat/responses/embeddings HTTP compatibility handlers
-- [ ] T013 [P1] 将 gateway data/control handler 接入独立生产 listener
-- [ ] T014 [P1] 实现外部 SessionStore/UserBindingStore/RateLimitStore HTTP adapters
+- [x] T012 [P1] 完成 OpenAI chat/responses/embeddings HTTP compatibility handlers
+- [x] T013 将 gateway data/control handler 接入独立生产 listener
+- [x] T014 [P1] 实现外部 SessionStore/UserBindingStore/RateLimitStore HTTP adapters
 - [x] T015 实现 bounded blob upload/store 与 client/user/binding 隔离测试
 - [ ] T016 [P1] 实现 local enrollment 与 gateway OIDC exchange endpoints
 - [ ] T017 [P1] 为所有 P0 Provider 补齐成熟度 manifest 与完整统一 conformance matrix

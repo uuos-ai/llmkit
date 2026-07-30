@@ -7,7 +7,7 @@ import (
 )
 
 func TestParseFlagsProducesExplicitOverridesOnly(t *testing.T) {
-	path, overrides, err := parseFlags([]string{"--config", "llmkit.yaml", "--mode", "local-service", "--instance-id", "worker-2", "--max-frame-bytes", "4096"})
+	path, overrides, err := parseFlags([]string{"--config", "llmkit.yaml", "--mode", "local-service", "--instance-id", "worker-2", "--max-frame-bytes", "4096", "--admin-listen", ":9443"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16,5 +16,8 @@ func TestParseFlagsProducesExplicitOverridesOnly(t *testing.T) {
 	}
 	if overrides.Socket != nil {
 		t.Fatal("unset CLI value must not override environment or file")
+	}
+	if overrides.AdminListen == nil || *overrides.AdminListen != ":9443" {
+		t.Fatal("admin listen override missing")
 	}
 }

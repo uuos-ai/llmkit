@@ -6,7 +6,7 @@
 | --- | --- | --- | --- | --- |
 | `sidecar`（默认） | UDS / named pipe | 父 SDK 启动 token | 当前进程 | 无状态，request-scoped |
 | `local-service` | UDS / named pipe | enrollment 后的 `llmk_l1_` | 默认 instance 内，可选共享 store | 默认无状态；可选 SQLite + OS Keychain |
-| `gateway` | HTTPS JSON/SSE | OIDC/业务凭证 exchange 后的 `llmk_g1_` | 集群共享强一致 store | 外部 Config/Secret/Session/Audit Store |
+| `gateway` | HTTPS JSON/SSE | OIDC/业务凭证 exchange 后的 `llmk_g1_` | 集群共享强一致 store | 外部 Config/Secret/Session/UserBinding/RateLimit/Audit Store |
 
 ## 多实例
 
@@ -42,7 +42,9 @@ target 显式绑定 credential mode，不跨 business/client/user scope 回退�
 
 ## 控制面与数据面
 
-数据面包含目标读取、推理、流、blob 与 token refresh。控制面包含 client/enrollment、Provider/凭据写入、runtime policy 与审计。生产 gateway 必须使用独立 listener/网络策略；local-service 使用独立 admin IPC；sidecar 即使共用 pipe 也使用独立 namespace 与 scopes。
+数据面包含目标读取、推理、流、blob 与 token refresh。控制面包含 client/enrollment、Provider/凭据写入、runtime policy 与审计。生产 gateway 使用必填且不同的 `listen` / `admin_listen`；local-service 使用独立 admin IPC；sidecar 即使共用 pipe 也使用独立 namespace 与 scopes。
+
+gateway 的 `storage.coordination_store`（或 `LLMKIT_COORDINATION_STORE` / `--coordination-store`）提供强一致的 SessionStore、UserBindingStore 与 RateLimitStore HTTP 合同。每次认证都校验当前 binding；推理前获取跨副本限流 lease，结束后提交或释放。
 
 ## 持久化
 

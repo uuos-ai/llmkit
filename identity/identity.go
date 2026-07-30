@@ -19,11 +19,11 @@ import (
 )
 
 type Principal struct {
-	ClientID         string
-	ClientInstanceID string
-	UserID           string
-	BindingVersion   uint64
-	Scopes           map[string]struct{}
+	ClientID         string              `json:"client_id"`
+	ClientInstanceID string              `json:"client_instance_id,omitempty"`
+	UserID           string              `json:"user_id,omitempty"`
+	BindingVersion   uint64              `json:"binding_version,omitempty"`
+	Scopes           map[string]struct{} `json:"scopes,omitempty"`
 }
 
 const (

@@ -38,10 +38,33 @@ func TestLoadRejectsUnknownAndUnsafeGateway(t *testing.T) {
 	config.Mode = ModeGateway
 	config.InstanceID = "gateway-1"
 	config.Listen = ":8443"
+	config.AdminListen = ":9443"
 	config.ClientTokenHashFile = "/tokens"
 	config.CustomProviderSync = SyncManaged
 	if err := config.Validate(); err == nil {
 		t.Fatal("expected gateway without TLS and stores to fail closed")
+	}
+}
+
+func TestGatewayRequiresDistinctAdminListener(t *testing.T) {
+	config := Defaults()
+	config.Mode = ModeGateway
+	config.Listen = ":8443"
+	config.AdminListen = ":8443"
+	config.ClientTokenHashFile = "/tokens"
+	config.CustomProviderSync = SyncManaged
+	config.TLS.CertificateFile = "/cert"
+	config.TLS.PrivateKeyFile = "/key"
+	config.Storage.ConfigStore = "https://config"
+	config.Storage.SecretStore = "https://secret"
+	config.Storage.AuditStore = "https://audit"
+	config.Storage.CoordinationStore = "https://coordination"
+	if err := config.Validate(); err == nil {
+		t.Fatal("same data/control listener accepted")
+	}
+	config.AdminListen = ":9443"
+	if err := config.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 
