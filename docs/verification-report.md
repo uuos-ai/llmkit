@@ -17,7 +17,7 @@ cross-compile all release targets.
 | Routing | Strict explicit target IDs, dynamic default resolution, A2 non-secret local available-target merge |
 | Gateway | Bearer authentication, external target/secret resolution, normalized JSON response and audit metadata |
 | Gateway identity | OIDC control-plane isolation, access/refresh exchange, user-binding fencing, restricted 60-second recovery sessions |
-| Gateway coordination | External session/binding/rate-limit/identity ports; four-level inference leases with usage settlement; mTLS plus reloadable short-term service token |
+| Gateway coordination | External session/binding/rate-limit/identity ports; four-level inference leases with usage settlement; mTLS plus reloadable short-term service token; strict bounded business-store JSON |
 | Configuration | Strict YAML/JSON, unknown-field rejection, default/file/env/CLI precedence, gateway fail-closed validation |
 | Optional local state | SQLite CRUD/isolation, OS-keyring mock, stored request-scoped credential opening and deletion |
 | Local runtime | Real child-process handshake/health/shutdown test over Unix socket and Windows named pipe |

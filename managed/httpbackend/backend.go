@@ -30,11 +30,8 @@ type Backend struct {
 }
 
 func New(configURL, secretURL, auditURL, certificateFile, privateKeyFile string, sources ...managed.ServiceTokenSource) (*Backend, error) {
-	for _, raw := range []string{configURL, secretURL, auditURL} {
-		parsed, err := url.Parse(raw)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
-			return nil, errors.New("managed http backend: store references must be HTTPS URLs without userinfo")
-		}
+	if err := validateStoreURLs(configURL, secretURL, auditURL); err != nil {
+		return nil, err
 	}
 	certificate, err := tls.LoadX509KeyPair(certificateFile, privateKeyFile)
 	if err != nil {
@@ -42,17 +39,40 @@ func New(configURL, secretURL, auditURL, certificateFile, privateKeyFile string,
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
+	return NewWithClient(configURL, secretURL, auditURL, &http.Client{Timeout: 15 * time.Second, Transport: transport}, sources...)
+}
+
+// NewWithClient constructs the same adapter with a host-owned HTTP client.
+// It is useful for custom trust roots, service meshes, and offline contract
+// tests; the host remains responsible for mTLS and request timeouts.
+func NewWithClient(configURL, secretURL, auditURL string, client *http.Client, sources ...managed.ServiceTokenSource) (*Backend, error) {
+	if err := validateStoreURLs(configURL, secretURL, auditURL); err != nil {
+		return nil, err
+	}
+	if client == nil {
+		return nil, errors.New("managed http backend: HTTP client is required")
+	}
 	if len(sources) > 1 {
 		return nil, errors.New("managed http backend: at most one service token source is allowed")
 	}
 	backend := &Backend{
 		configURL: strings.TrimRight(configURL, "/"), secretURL: strings.TrimRight(secretURL, "/"), auditURL: strings.TrimRight(auditURL, "/"),
-		client: &http.Client{Timeout: 15 * time.Second, Transport: transport},
+		client: client,
 	}
 	if len(sources) == 1 {
 		backend.serviceToken = sources[0]
 	}
 	return backend, nil
+}
+
+func validateStoreURLs(urls ...string) error {
+	for _, raw := range urls {
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+			return errors.New("managed http backend: store references must be HTTPS URLs without userinfo")
+		}
+	}
+	return nil
 }
 
 func (b *Backend) ProviderOptions(ctx context.Context, principal identity.Principal) (routing.OptionsResponse, error) {
@@ -149,9 +169,7 @@ func (b *Backend) call(ctx context.Context, principal identity.Principal, method
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 		return nil
 	}
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 8<<20))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(output); err != nil {
+	if err := decodeBoundedJSON(response.Body, 8<<20, output); err != nil {
 		return errors.New("managed http backend: store response is malformed")
 	}
 	return nil
@@ -175,7 +193,7 @@ func newCredentialHandle(input credentialResponse) (*credentialHandle, error) {
 		value = prefixed
 	case "header":
 		switch strings.ToLower(header) {
-		case "authorization", "x-api-key", "x-goog-api-key":
+		case "authorization", "api-key", "x-api-key", "x-goog-api-key":
 		default:
 			clear(value)
 			return nil, errors.New("managed http backend: unsupported credential header")
@@ -188,11 +206,37 @@ func newCredentialHandle(input credentialResponse) (*credentialHandle, error) {
 }
 
 func (h *credentialHandle) Apply(_ context.Context, _ llmkit.Target, request *http.Request) error {
+	if h.header == "" || len(h.value) == 0 {
+		return errors.New("managed http backend: credential handle was released")
+	}
 	request.Header.Set(h.header, string(h.value))
 	return nil
 }
 
-func (h *credentialHandle) clear() { clear(h.value) }
+func (h *credentialHandle) clear() {
+	clear(h.value)
+	h.value = nil
+	h.header = ""
+}
+
+func decodeBoundedJSON(reader io.Reader, limit int64, output any) error {
+	encoded, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil || int64(len(encoded)) > limit {
+		clear(encoded)
+		return errors.New("response exceeds limit")
+	}
+	defer clear(encoded)
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(output); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return errors.New("response contains trailing data")
+	}
+	return nil
+}
 
 var _ managed.ConfigStore = (*Backend)(nil)
 var _ managed.SecretStore = (*Backend)(nil)

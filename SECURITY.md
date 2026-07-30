@@ -20,6 +20,8 @@ first release.
   implicitly.
 - Codec code must not perform implicit network fetches.
 - Streaming and non-streaming response bodies are bounded.
+- Business-store responses are bounded, reject unknown fields and trailing JSON,
+  and credential handles become unusable immediately after release.
 - Cancellation must stop network work and must not trigger automatic retry.
 - Sidecar and local-service use protected local IPC. Local-service authenticates
   every token into an isolated client identity and client-local current user binding.

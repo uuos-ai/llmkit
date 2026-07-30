@@ -185,13 +185,30 @@ func (b *Backend) call(ctx context.Context, method, path string, input, output a
 		return response.StatusCode, fmt.Errorf("httpcoord: service rejected operation: %d", response.StatusCode)
 	}
 	if output != nil {
-		decoder := json.NewDecoder(io.LimitReader(response.Body, 1<<20))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(output); err != nil {
+		if err := decodeBoundedJSON(response.Body, 1<<20, output); err != nil {
 			return response.StatusCode, errors.New("httpcoord: malformed response")
 		}
 	}
 	return response.StatusCode, nil
+}
+
+func decodeBoundedJSON(reader io.Reader, limit int64, output any) error {
+	encoded, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil || int64(len(encoded)) > limit {
+		clear(encoded)
+		return errors.New("response exceeds limit")
+	}
+	defer clear(encoded)
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(output); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return errors.New("response contains trailing data")
+	}
+	return nil
 }
 
 var _ managed.SessionStore = (*Backend)(nil)

@@ -1,6 +1,7 @@
 package httpcoord
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -45,6 +46,19 @@ func TestSessionAndRateLimitContracts(t *testing.T) {
 	lease, err := backend.Reserve(context.Background(), managed.RateLimitRequest{ClientID: "c", Requests: 1})
 	if err != nil || !lease.Allowed {
 		t.Fatalf("lease=%#v err=%v", lease, err)
+	}
+}
+
+func TestStrictBoundedCoordinationResponse(t *testing.T) {
+	var decoded map[string]any
+	if err := decodeBoundedJSON(strings.NewReader(`{} {"trailing":true}`), 1024, &decoded); err == nil {
+		t.Fatal("trailing JSON value was accepted")
+	}
+	if err := decodeBoundedJSON(strings.NewReader("{} "), 2, &decoded); err == nil {
+		t.Fatal("oversized JSON response was accepted")
+	}
+	if err := decodeBoundedJSON(bytes.NewBufferString(`{"unknown":true}`), 1024, &struct{}{}); err == nil {
+		t.Fatal("unknown JSON field was accepted")
 	}
 }
 

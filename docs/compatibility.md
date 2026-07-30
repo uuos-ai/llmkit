@@ -80,6 +80,9 @@ release artifacts move to the three-mode `llmkitd` binary before v1.0.
   version stays in the retained key ring.
 - `managed.Target.ProviderAccount` is an optional, opaque quota dimension. The
   gateway falls back to the Provider ID when the business ConfigStore omits it.
+- `managed/httpbackend.NewWithClient` is an additive constructor for custom
+  trust roots, service meshes, and offline contract tests. The existing `New`
+  constructor continues to require mTLS certificate files.
 - Gateway inference leases now include `client_id`, `user_id`, `target_id`, and
   `provider_account`, then commit reported input/output token usage. A stream
   that reaches EOF without a normalized terminal event is accounted and
