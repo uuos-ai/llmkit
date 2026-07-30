@@ -8,21 +8,40 @@ import (
 type ErrorKind string
 
 const (
-	ErrorAuthentication    ErrorKind = "authentication"
-	ErrorPermission        ErrorKind = "permission"
-	ErrorInvalidRequest    ErrorKind = "invalid_request"
-	ErrorUnsupported       ErrorKind = "unsupported_feature"
-	ErrorModelNotFound     ErrorKind = "model_not_found"
-	ErrorContextLength     ErrorKind = "context_length"
-	ErrorRateLimit         ErrorKind = "rate_limit"
-	ErrorQuotaExhausted    ErrorKind = "quota_exhausted"
-	ErrorContentBlocked    ErrorKind = "content_blocked"
-	ErrorOverloaded        ErrorKind = "overloaded"
-	ErrorTimeout           ErrorKind = "timeout"
-	ErrorCanceled          ErrorKind = "canceled"
-	ErrorTransport         ErrorKind = "transport"
-	ErrorMalformedResponse ErrorKind = "malformed_response"
-	ErrorUnknown           ErrorKind = "unknown"
+	ErrorAuthenticationFailed   ErrorKind = "authentication_failed"
+	ErrorPermissionDenied       ErrorKind = "permission_denied"
+	ErrorInvalidRequest         ErrorKind = "invalid_request"
+	ErrorCapabilityNotSupported ErrorKind = "capability_not_supported"
+	ErrorTargetNotFound         ErrorKind = "target_not_found"
+	ErrorTargetUnavailable      ErrorKind = "target_unavailable"
+	ErrorCredentialUnavailable  ErrorKind = "credential_unavailable"
+	ErrorContextLengthExceeded  ErrorKind = "context_length_exceeded"
+	ErrorRateLimited            ErrorKind = "rate_limited"
+	ErrorQuotaExceeded          ErrorKind = "quota_exceeded"
+	ErrorContentFiltered        ErrorKind = "content_filtered"
+	ErrorProviderUnavailable    ErrorKind = "provider_unavailable"
+	ErrorProvider               ErrorKind = "provider_error"
+	ErrorTimeout                ErrorKind = "timeout"
+	ErrorCancelled              ErrorKind = "cancelled"
+	ErrorProtocol               ErrorKind = "protocol_error"
+	ErrorOutcomeUnknown         ErrorKind = "request_outcome_unknown"
+	ErrorInternal               ErrorKind = "internal_error"
+
+	// Compatibility names retain source compatibility while emitting the
+	// normalized v1 error vocabulary.
+	ErrorAuthentication    = ErrorAuthenticationFailed
+	ErrorPermission        = ErrorPermissionDenied
+	ErrorUnsupported       = ErrorCapabilityNotSupported
+	ErrorModelNotFound     = ErrorTargetNotFound
+	ErrorContextLength     = ErrorContextLengthExceeded
+	ErrorRateLimit         = ErrorRateLimited
+	ErrorQuotaExhausted    = ErrorQuotaExceeded
+	ErrorContentBlocked    = ErrorContentFiltered
+	ErrorOverloaded        = ErrorProviderUnavailable
+	ErrorCanceled          = ErrorCancelled
+	ErrorTransport         = ErrorProviderUnavailable
+	ErrorMalformedResponse = ErrorProtocol
+	ErrorUnknown           = ErrorProvider
 )
 
 type TransportPhase string

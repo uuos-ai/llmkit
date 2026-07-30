@@ -3,8 +3,11 @@ package endpointpolicy
 
 import (
 	"context"
+	"errors"
 	"net"
+	"net/http"
 	"net/url"
+	"path"
 	"strings"
 
 	"github.com/uuos-ai/llmkit"
@@ -19,7 +22,14 @@ func PublicHTTPS(ctx context.Context, resolver *net.Resolver) func(llmkit.Target
 	}
 	return func(target llmkit.Target) error {
 		parsed, err := url.Parse(target.Endpoint)
-		if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil {
+		if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
+			return denied(target)
+		}
+		if parsed.Port() != "" && parsed.Port() != "443" {
+			return denied(target)
+		}
+		decodedPath, err := url.PathUnescape(parsed.EscapedPath())
+		if err != nil || strings.Contains(decodedPath, "\\") || path.Clean("/"+decodedPath) != "/"+strings.TrimPrefix(decodedPath, "/") {
 			return denied(target)
 		}
 		host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
@@ -37,6 +47,19 @@ func PublicHTTPS(ctx context.Context, resolver *net.Resolver) func(llmkit.Target
 		}
 		return nil
 	}
+}
+
+// NoCrossHostRedirect prevents credentials from crossing an origin boundary.
+// Callers must still clear sensitive headers on every manually followed redirect.
+func NoCrossHostRedirect(request *http.Request, via []*http.Request) error {
+	if len(via) == 0 {
+		return nil
+	}
+	previous := via[len(via)-1].URL
+	if !strings.EqualFold(previous.Scheme, request.URL.Scheme) || !strings.EqualFold(previous.Host, request.URL.Host) {
+		return errors.New("endpointpolicy: cross-origin redirect denied")
+	}
+	return nil
 }
 
 func denied(target llmkit.Target) error {

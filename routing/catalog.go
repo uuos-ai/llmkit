@@ -1,4 +1,4 @@
-// Package routing defines the non-secret provider/target catalog shared by
+// Package routing defines the non-secret available-target snapshot shared by
 // SDK, local-service, and gateway deployments.
 package routing
 
@@ -23,6 +23,23 @@ const (
 	SourceCustom   ProviderSource = "custom"
 )
 
+type OwnerScope string
+
+const (
+	ScopeBusiness OwnerScope = "business"
+	ScopeClient   OwnerScope = "client"
+	ScopeUser     OwnerScope = "user"
+)
+
+type CredentialMode string
+
+const (
+	CredentialManaged       CredentialMode = "managed"
+	CredentialRequestScoped CredentialMode = "request_scoped"
+	CredentialWorkload      CredentialMode = "workload"
+	CredentialNone          CredentialMode = "none"
+)
+
 // ProviderOption and TargetOption intentionally contain no credential field.
 // Credentials are always supplied request-scoped or resolved from SecretStore.
 type ProviderOption struct {
@@ -33,10 +50,18 @@ type ProviderOption struct {
 }
 
 type TargetOption struct {
-	ID           string              `json:"id"`
-	DisplayName  string              `json:"display_name,omitempty"`
-	Target       llmkit.Target       `json:"target"`
-	Capabilities []llmkit.Capability `json:"capabilities,omitempty"`
+	ID             string              `json:"id"`
+	DisplayName    string              `json:"display_name,omitempty"`
+	Target         llmkit.Target       `json:"target"`
+	OwnerScope     OwnerScope          `json:"owner_scope"`
+	CredentialMode CredentialMode      `json:"credential_mode"`
+	Capabilities   []llmkit.Capability `json:"capabilities,omitempty"`
+	Limits         TargetLimits        `json:"limits,omitempty"`
+}
+
+type TargetLimits struct {
+	MaxInputTokens  int64 `json:"max_input_tokens,omitempty"`
+	MaxOutputTokens int64 `json:"max_output_tokens,omitempty"`
 }
 
 type OptionsRequest struct {
@@ -48,10 +73,18 @@ type OptionsRequest struct {
 
 type OptionsResponse struct {
 	Revision        string           `json:"revision"`
+	BindingVersion  uint64           `json:"binding_version,omitempty"`
 	DefaultTargetID string           `json:"default_target_id,omitempty"`
 	GeneratedAt     time.Time        `json:"generated_at"`
+	RefreshAfter    time.Time        `json:"refresh_after,omitempty"`
+	StaleUntil      time.Time        `json:"stale_until,omitempty"`
 	Providers       []ProviderOption `json:"providers"`
 }
+
+// AvailableTargetsRequest/Response are the preferred public names. Options*
+// remain aliases so protocol v1 clients continue to compile.
+type AvailableTargetsRequest = OptionsRequest
+type AvailableTargetsResponse = OptionsResponse
 
 type Source interface {
 	Options(context.Context, identity.Principal) (OptionsResponse, error)
@@ -114,10 +147,11 @@ func (c *SessionCatalog) Refresh(ctx context.Context, principal identity.Princip
 	}
 	if response.DefaultTargetID != "" {
 		if _, ok := targets[response.DefaultTargetID]; !ok {
-			return OptionsResponse{}, errors.New("routing: default target is not in the catalog")
+			return OptionsResponse{}, errors.New("routing: default target is not in the available target list")
 		}
 	}
 	response.GeneratedAt = time.Now().UTC()
+	response.BindingVersion = principal.BindingVersion
 	response.Revision = revision(response)
 	c.mu.Lock()
 	c.views[principal.Key()] = view{defaultID: response.DefaultTargetID, targets: targets}
@@ -132,18 +166,18 @@ func (c *SessionCatalog) Resolve(_ context.Context, principal identity.Principal
 	current, ok := c.views[principal.Key()]
 	c.mu.RUnlock()
 	if !ok {
-		return llmkit.Target{}, "", errors.New("routing: provider options must be refreshed before use")
+		return llmkit.Target{}, "", errors.New("routing: available target list must be refreshed before use")
 	}
 	resolvedID := targetID
 	if resolvedID == "" {
 		resolvedID = current.defaultID
 	}
 	if resolvedID == "" {
-		return llmkit.Target{}, "", errors.New("routing: no default target is available")
+		return llmkit.Target{}, "", errors.New("routing: no available default target")
 	}
 	target, ok := current.targets[resolvedID]
 	if !ok {
-		return llmkit.Target{}, "", errors.New("routing: target is not in the current catalog")
+		return llmkit.Target{}, "", errors.New("routing: target is not in the current available target list")
 	}
 	return target, resolvedID, nil
 }
@@ -163,7 +197,18 @@ func normalize(providers []ProviderOption) (OptionsResponse, map[string]llmkit.T
 		}
 		providerIDs[provider.ID] = struct{}{}
 		sort.Slice(provider.Targets, func(a, b int) bool { return provider.Targets[a].ID < provider.Targets[b].ID })
-		for _, option := range provider.Targets {
+		for targetIndex := range provider.Targets {
+			option := &provider.Targets[targetIndex]
+			if option.OwnerScope == "" {
+				if provider.Source == SourceBusiness {
+					option.OwnerScope = ScopeBusiness
+				} else {
+					option.OwnerScope = ScopeClient
+				}
+			}
+			if option.CredentialMode == "" {
+				option.CredentialMode = CredentialRequestScoped
+			}
 			if option.ID == "" || option.Target.Provider == "" || option.Target.Model == "" {
 				return OptionsResponse{}, nil, errors.New("routing: target id, provider, and model are required")
 			}

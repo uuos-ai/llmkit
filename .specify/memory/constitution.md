@@ -1,50 +1,45 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# llmkit Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Library First
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+llmkit is an embeddable Go Provider SDK. `llmkitd` is an optional transport boundary and MUST reuse the same provider core. Business products retain ownership of users, consent, routing policy, pricing and billing.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Protocol Correctness
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+Every Provider adapter MUST implement only upstream protocol concerns and MUST normalize requests, stream events, errors and usage into versioned llmkit contracts. Unsupported semantics fail explicitly; lossy adaptation requires an explicit degradation policy and warning.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. Isolation and Secret Safety
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+`client_id` is the primary business isolation boundary. `user_id` is meaningful only within one client. Secrets are request-scoped handles or opaque internal references, never ordinary configuration, logs, fixtures, snapshots or client-visible identifiers. Prompt and response content is not persisted by the core.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. Deterministic Reliability
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+Every network operation accepts `context.Context`. Retry and fallback are bounded and explicit, never cross host-declared provider/region boundaries, and stop once output begins or request outcome is unknown. Streams have ordered sequence numbers and exactly one terminal event.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### V. Conformance Before Claims
+
+Every built-in Provider requires offline contract tests for requests, non-streaming responses, streaming, tools, errors, usage, cancellation and malformed input. Maturity is `experimental`, `conformant` or time-bounded `verified`; compatibility is never inferred only from an OpenAI-compatible label.
+
+## Architecture and Security Constraints
+
+- One `llmkitd` binary supports `sidecar`, `local-service` and `gateway` via defaults, file, environment and CLI precedence.
+- Sidecar is parent-owned and stateless. Local-service is client-isolated and optionally managed. Gateway requires external config, secret, session/binding and audit storage.
+- Local transports use protected framed IPC; gateway uses HTTPS JSON/SSE. Control-plane and data-plane authorization are separate.
+- Public endpoints enforce SSRF protections. Gateway business APIs use mTLS plus short-lived service authorization.
+- Public contracts are versioned independently: native protocol, adapter API, configuration schema and business integration API.
+- No AGPL implementation code may be copied into this Apache-2.0 repository.
+
+## Development Workflow and Gates
+
+- Public contract changes require specification updates, compatibility notes and tests.
+- `gofmt`, `go test ./...`, `go vet ./...`, race-focused tests, cross-platform builds and workflow linting are release gates.
+- Releases publish signed checksums, SBOMs, provenance and a Provider conformance report.
+- Storage migrations use expand/migrate/contract for gateway and transactional backup/migration for local SQLite.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes informal design notes. Amendments require an updated version, rationale, migration impact and matching changes to repository rules/specifications. Code review MUST check constitution compliance.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-07-30 | **Last Amended**: 2026-07-30

@@ -16,8 +16,8 @@ func TestSessionCatalogRefreshDefaultAndIsolation(t *testing.T) {
 		}}, DefaultTargetID: "default-a"}, nil
 	})
 	catalog := NewSessionCatalog(source)
-	a := identity.Principal{TenantID: "t", ClientID: "a"}
-	b := identity.Principal{TenantID: "t", ClientID: "b"}
+	a := identity.Principal{ClientID: "a", UserID: "u"}
+	b := identity.Principal{ClientID: "b", UserID: "u"}
 	custom := ProviderOption{ID: "custom-a", Source: SourceCustom, Targets: []TargetOption{{
 		ID: "target-a", Target: llmkit.Target{Provider: "openai", Model: "local", Endpoint: "https://example.test/v1"},
 	}}}

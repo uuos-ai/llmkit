@@ -4,7 +4,7 @@
 
 ## 定位
 
-`llmkit` 的核心仍是 SDK，不拥有业务应用的用户、支付、额度、价格或授权政策。统一守护进程 `llmkitd` 把同一套 Provider 能力暴露为三种可切换部署模式：默认 sidecar、本机多客户端服务、远程 HTTPS 网关。网关只是传输与 Provider 执行边界，业务目录、动态默认值、密钥和审计仍由业务平台拥有。
+`llmkit` 的核心仍是 SDK，不拥有业务应用的用户、支付、额度、价格或授权政策。统一守护进程 `llmkitd` 把同一套 Provider 能力暴露为三种可切换部署模式：默认 sidecar、本机多客户端服务、远程 HTTPS 网关。网关只是传输与 Provider 执行边界，可用目标清单、动态默认值、密钥和审计仍由业务平台拥有。
 
 ```text
 Host Application
@@ -57,7 +57,8 @@ Provider/Registry API、请求级凭据、凭据验证、HTTP Transport、SSE pa
 - [分析索引](./docs/README.md)
 - [new-api relay/relaykit 分析](./docs/research/new-api-relay-relaykit-analysis.md)
 - [SDK 架构边界](./docs/architecture/provider-sdk-boundary.md)
-- [llmkitd 三种部署模式与动态目录](./docs/architecture/deployment-modes.md)
+- [llmkitd 三种部署模式与可用目标清单](./docs/architecture/deployment-modes.md)
+- [spec-kit 批准需求](./specs/001-runtime-provider-sdk/spec.md)
 - [llmkit-sidecar 需求](./docs/architecture/sidecar-requirements.md)
 - [llmkit-sidecar protocol v1](./docs/sidecar-protocol-v1.md)
 - [llmkit-sidecar 兼容矩阵](./docs/sidecar-compatibility.md)
@@ -70,7 +71,7 @@ Provider/Registry API、请求级凭据、凭据验证、HTTP Transport、SSE pa
 - `retry` 仅对一个不可变 `Target` 做显式、有限次数重试。
 - `reliability` 产生不含内容与凭据的 attempt sample，并维护只读健康信号；它不拦截请求。
 - `failover` 只遍历宿主明确提供的目标列表，并要求宿主为每次失败提供继续决策。
-- `catalog` 对宿主触发的 capability/model discovery 做 TTL 缓存和并发请求合并；模型目录缓存要求宿主提供非密钥 scope，避免跨凭据可见性边界共享。
+- `catalog` 对宿主触发的 capability/model discovery 做 TTL 缓存和并发请求合并；模型发现缓存要求宿主提供非密钥 scope，避免跨凭据可见性边界共享。
 
 ## License
 

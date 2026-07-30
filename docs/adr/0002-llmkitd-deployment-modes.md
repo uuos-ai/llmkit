@@ -12,15 +12,15 @@ registry, normalized types, errors, usage, streaming semantics, and request
 cancellation.
 
 Sidecar retains one launch-scoped secret and parent-process supervision.
-Local-service uses one token per client and isolates tenant/client catalog
+Local-service uses one token family per client instance and isolates client/user available-target
 state over protected local IPC. Gateway uses HTTPS JSON/SSE, one token per
 client, managed custom-provider synchronization, and mandatory external
 ConfigStore, SecretStore, and AuditStore implementations.
 
-Provider/model selection is represented by a catalog `target_id`. An explicit
+Provider/model selection is represented by an available-target `target_id`. An explicit
 ID is strict. If omitted, the current default captured by the client's latest
-catalog refresh is selected. Business built-ins and user custom targets are
-always returned through the same catalog API.
+snapshot refresh is selected. Business built-ins and user custom targets are
+always returned through the same available-target API.
 
 ## Boundary
 

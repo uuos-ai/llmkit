@@ -141,8 +141,8 @@ func bindAndServe(ctx context.Context, listener net.Listener, service *server.Se
 		_ = listener.Close()
 	}()
 	source := routing.Source(routing.RegistrySource(registry))
-	if config.BusinessCatalogURL != "" {
-		source = routing.HTTPSource{URL: config.BusinessCatalogURL}
+	if config.BusinessTargetsURL != "" {
+		source = routing.HTTPSource{URL: config.BusinessTargetsURL}
 	}
 	if managedStore != nil {
 		localSource := routing.SourceFunc(func(ctx context.Context, principal identity.Principal) (routing.OptionsResponse, error) {
@@ -281,7 +281,7 @@ func parseFlags(arguments []string) (string, runtimeconfig.Overrides, error) {
 	set.Var(optionalString{&overrides.Listen}, "listen", "gateway HTTPS listen address")
 	set.Var(optionalInt{&overrides.ParentPID}, "parent-pid", "sidecar host process ID")
 	set.Var(optionalString{&overrides.ClientTokenHashFile}, "client-token-hash-file", "client token hash file")
-	set.Var(optionalString{&overrides.BusinessCatalogURL}, "business-catalog-url", "business provider catalog HTTPS URL")
+	set.Var(optionalString{&overrides.BusinessTargetsURL}, "business-targets-url", "business available-target-list HTTPS URL")
 	set.Var(optionalString{&syncMode}, "custom-provider-sync", "disabled or managed")
 	set.Var(optionalUint32{&overrides.MaxFrameBytes}, "max-frame-bytes", "maximum local frame or gateway body size")
 	set.Var(optionalString{&overrides.TLSCertificateFile}, "tls-certificate-file", "gateway TLS certificate")

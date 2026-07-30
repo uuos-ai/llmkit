@@ -63,7 +63,7 @@ func (c *testCredential) Apply(_ context.Context, _ llmkit.Target, request *http
 
 func TestGatewayAuthenticatesAndResolvesDefaultAtRequestTime(t *testing.T) {
 	token := []byte("0123456789abcdef0123456789abcdef")
-	auth, err := identity.SingleToken(token, identity.Principal{TenantID: "tenant", ClientID: "client"})
+	auth, err := identity.SingleToken(token, identity.Principal{ClientID: "client", UserID: "user", BindingVersion: 1, Scopes: map[string]struct{}{identity.ScopeInferenceExecute: {}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestGatewayAuthenticatesAndResolvesDefaultAtRequestTime(t *testing.T) {
 	if response.Code != http.StatusOK || provider.authorization != "Bearer secret" {
 		t.Fatalf("status=%d body=%s auth=%q", response.Code, response.Body.String(), provider.authorization)
 	}
-	if stores.principal.TenantID != "tenant" || stores.principal.ClientID != "client" || len(stores.audits) != 1 || stores.audits[0].TargetID != "default" {
+	if stores.principal.UserID != "user" || stores.principal.ClientID != "client" || len(stores.audits) != 1 || stores.audits[0].TargetID != "default" {
 		t.Fatalf("principal=%#v audits=%#v", stores.principal, stores.audits)
 	}
 }

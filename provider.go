@@ -76,6 +76,16 @@ type Embedder interface {
 	Embed(ctx context.Context, call EmbedCall) (EmbedResponse, error)
 }
 
+type Reranker interface {
+	Provider
+	Rerank(ctx context.Context, call RerankCall) (RerankResponse, error)
+}
+
+type Moderator interface {
+	Provider
+	Moderate(ctx context.Context, call ModerateCall) (ModerateResponse, error)
+}
+
 // CredentialValidator verifies that one request-scoped credential is accepted
 // by the selected provider without performing a billable generation.
 type CredentialValidator interface {
@@ -129,8 +139,14 @@ type ContentPart struct {
 
 type MediaContent struct {
 	MediaType string `json:"media_type"`
-	URL       string `json:"url,omitempty"`
-	Data      []byte `json:"data,omitempty"`
+	BlobRef   string `json:"blob_ref,omitempty"`
+	RemoteURL string `json:"remote_url,omitempty"`
+	Checksum  string `json:"checksum,omitempty"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+	// URL and Data are v1 compatibility fields. Services must reject file://
+	// URLs; SDKs should translate local files to inline data or BlobRef.
+	URL  string `json:"url,omitempty"`
+	Data []byte `json:"data,omitempty"`
 }
 
 type Message struct {
@@ -196,6 +212,49 @@ type EmbedCall struct {
 	Metadata    map[string]string
 }
 
+type RerankCall struct {
+	OperationID string
+	Target      Target
+	Credential  CredentialHandle
+	Query       string
+	Documents   []string
+	TopN        *int
+	Metadata    map[string]string
+}
+
+type RerankResult struct {
+	Index    int     `json:"index"`
+	Score    float64 `json:"score"`
+	Document string  `json:"document,omitempty"`
+}
+
+type RerankResponse struct {
+	ProviderRequestID string         `json:"provider_request_id,omitempty"`
+	Results           []RerankResult `json:"results"`
+	Usage             Usage          `json:"usage"`
+}
+
+type ModerateCall struct {
+	OperationID string
+	Target      Target
+	Credential  CredentialHandle
+	Content     []ContentPart
+	Metadata    map[string]string
+}
+
+type ModerationCategory struct {
+	Name    string   `json:"name"`
+	Flagged bool     `json:"flagged"`
+	Score   *float64 `json:"score,omitempty"`
+}
+
+type ModerateResponse struct {
+	ProviderRequestID string               `json:"provider_request_id,omitempty"`
+	Flagged           bool                 `json:"flagged"`
+	Categories        []ModerationCategory `json:"categories"`
+	Usage             Usage                `json:"usage"`
+}
+
 type CredentialCall struct {
 	Target     Target
 	Credential CredentialHandle
@@ -229,22 +288,46 @@ type EmbedResponse struct {
 type UsageSource string
 
 const (
-	UsageMissing   UsageSource = "missing"
-	UsageReported  UsageSource = "provider_reported"
-	UsageEstimated UsageSource = "estimated"
+	UsageMissing     UsageSource = "missing"
+	UsageReported    UsageSource = "provider_reported"
+	UsageDerived     UsageSource = "derived"
+	UsageEstimated   UsageSource = "estimated"
+	UsageUnavailable UsageSource = "unavailable"
 )
 
+type InputUsageDetails struct {
+	CachedTokens     int64 `json:"cached_tokens,omitempty"`
+	CacheWriteTokens int64 `json:"cache_write_tokens,omitempty"`
+	AudioTokens      int64 `json:"audio_tokens,omitempty"`
+	ImageTokens      int64 `json:"image_tokens,omitempty"`
+}
+
+type OutputUsageDetails struct {
+	ReasoningTokens int64 `json:"reasoning_tokens,omitempty"`
+	AudioTokens     int64 `json:"audio_tokens,omitempty"`
+}
+
+type BillableUnit struct {
+	Kind  string  `json:"kind"`
+	Value float64 `json:"value"`
+	Unit  string  `json:"unit"`
+}
+
 type Usage struct {
-	Source          UsageSource `json:"source"`
-	InputTokens     int64       `json:"input_tokens,omitempty"`
-	OutputTokens    int64       `json:"output_tokens,omitempty"`
-	TotalTokens     int64       `json:"total_tokens,omitempty"`
-	CachedRead      int64       `json:"cached_read,omitempty"`
-	CachedWrite     int64       `json:"cached_write,omitempty"`
-	ReasoningTokens int64       `json:"reasoning_tokens,omitempty"`
-	TextTokens      int64       `json:"text_tokens,omitempty"`
-	ImageTokens     int64       `json:"image_tokens,omitempty"`
-	AudioTokens     int64       `json:"audio_tokens,omitempty"`
+	Source          UsageSource         `json:"source"`
+	InputTokens     int64               `json:"input_tokens,omitempty"`
+	OutputTokens    int64               `json:"output_tokens,omitempty"`
+	TotalTokens     int64               `json:"total_tokens,omitempty"`
+	CachedRead      int64               `json:"cached_read,omitempty"`
+	CachedWrite     int64               `json:"cached_write,omitempty"`
+	ReasoningTokens int64               `json:"reasoning_tokens,omitempty"`
+	TextTokens      int64               `json:"text_tokens,omitempty"`
+	ImageTokens     int64               `json:"image_tokens,omitempty"`
+	AudioTokens     int64               `json:"audio_tokens,omitempty"`
+	InputDetails    *InputUsageDetails  `json:"input_details,omitempty"`
+	OutputDetails   *OutputUsageDetails `json:"output_details,omitempty"`
+	Requests        int64               `json:"requests,omitempty"`
+	BillableUnits   []BillableUnit      `json:"billable_units,omitempty"`
 	// Extensions may contain documented, non-sensitive numeric counters using
 	// provider-qualified keys. It must never contain arbitrary provider DTOs.
 	Extensions map[string]int64 `json:"extensions,omitempty"`
@@ -288,6 +371,20 @@ type Adaptation struct {
 type StreamEventType string
 
 const (
+	EventResponseCreated   StreamEventType = "response.created"
+	EventOutputItemAdded   StreamEventType = "output_item.added"
+	EventContentPartAdded  StreamEventType = "content_part.added"
+	EventContentDelta      StreamEventType = "content.delta"
+	EventToolArguments     StreamEventType = "tool_call.arguments.delta"
+	EventUsageUpdated      StreamEventType = "usage.updated"
+	EventContentPartDone   StreamEventType = "content_part.done"
+	EventOutputItemDone    StreamEventType = "output_item.done"
+	EventResponseCompleted StreamEventType = "response.completed"
+	EventResponseFailed    StreamEventType = "response.failed"
+	EventResponseCancelled StreamEventType = "response.cancelled"
+
+	// Provider adapters may continue producing these compact internal events;
+	// transports normalize them into the response.* state machine above.
 	EventMessageStart       StreamEventType = "message_start"
 	EventContentStart       StreamEventType = "content_start"
 	EventTextDelta          StreamEventType = "text_delta"
@@ -301,6 +398,10 @@ const (
 
 type StreamEvent struct {
 	Type              StreamEventType `json:"type"`
+	RequestID         string          `json:"request_id,omitempty"`
+	ResponseID        string          `json:"response_id,omitempty"`
+	Sequence          uint64          `json:"sequence,omitempty"`
+	TargetID          string          `json:"target_id,omitempty"`
 	Index             int             `json:"index,omitempty"`
 	Text              string          `json:"text,omitempty"`
 	ToolCall          *ToolCall       `json:"tool_call,omitempty"`
@@ -309,6 +410,14 @@ type StreamEvent struct {
 	FinishReason      FinishReason    `json:"finish_reason,omitempty"`
 	ProviderRequestID string          `json:"provider_request_id,omitempty"`
 	Adaptations       []Adaptation    `json:"adaptations,omitempty"`
+	Error             *StreamError    `json:"error,omitempty"`
+}
+
+type StreamError struct {
+	Code         ErrorKind `json:"code"`
+	Message      string    `json:"message"`
+	Retryable    bool      `json:"retryable,omitempty"`
+	RetryAfterMS int64     `json:"retry_after_ms,omitempty"`
 }
 
 // DrainStream is a convenience for consumers that need all events. It keeps

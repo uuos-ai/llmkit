@@ -16,6 +16,7 @@ import (
 	"github.com/uuos-ai/llmkit/identity"
 	"github.com/uuos-ai/llmkit/managed"
 	"github.com/uuos-ai/llmkit/routing"
+	streamcontract "github.com/uuos-ai/llmkit/stream"
 )
 
 type Config struct {
@@ -31,8 +32,10 @@ type Config struct {
 }
 
 type Server struct {
-	config  Config
-	handler http.Handler
+	config         Config
+	handler        http.Handler
+	dataHandler    http.Handler
+	controlHandler http.Handler
 }
 
 func New(config Config) (*Server, error) {
@@ -43,18 +46,30 @@ func New(config Config) (*Server, error) {
 		config.MaxBodyBytes = 8 << 20
 	}
 	server := &Server{config: config}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/health", server.health)
-	mux.Handle("GET /v1/provider-options", server.authenticate(http.HandlerFunc(server.providerOptions)))
-	mux.Handle("POST /v1/generate", server.authenticate(http.HandlerFunc(server.generate)))
-	mux.Handle("POST /v1/embed", server.authenticate(http.HandlerFunc(server.embed)))
-	mux.Handle("PUT /v1/custom-providers", server.authenticate(http.HandlerFunc(server.upsertCustomProvider)))
-	mux.Handle("DELETE /v1/custom-providers/{provider_id}", server.authenticate(http.HandlerFunc(server.deleteCustomProvider)))
-	server.handler = securityHeaders(mux)
+	data := http.NewServeMux()
+	data.HandleFunc("GET /v1/health", server.health)
+	data.Handle("GET /v1/available-targets", server.authenticate(http.HandlerFunc(server.providerOptions)))
+	data.Handle("GET /v1/provider-options", server.authenticate(http.HandlerFunc(server.providerOptions)))
+	data.Handle("GET /v1/models", server.authenticate(http.HandlerFunc(server.openAIModels)))
+	data.Handle("POST /v1/generate", server.authenticate(http.HandlerFunc(server.generate)))
+	data.Handle("POST /v1/embed", server.authenticate(http.HandlerFunc(server.embed)))
+	data.Handle("POST /v1/rerank", server.authenticate(http.HandlerFunc(server.rerank)))
+	data.Handle("POST /v1/moderate", server.authenticate(http.HandlerFunc(server.moderate)))
+	control := http.NewServeMux()
+	control.Handle("PUT /v1/custom-providers", server.authenticate(http.HandlerFunc(server.upsertCustomProvider)))
+	control.Handle("DELETE /v1/custom-providers/{provider_id}", server.authenticate(http.HandlerFunc(server.deleteCustomProvider)))
+	combined := http.NewServeMux()
+	combined.Handle("PUT /v1/custom-providers", control)
+	combined.Handle("DELETE /v1/custom-providers/{provider_id}", control)
+	combined.Handle("/", data)
+	server.dataHandler, server.controlHandler = securityHeaders(data), securityHeaders(control)
+	server.handler = securityHeaders(combined)
 	return server, nil
 }
 
-func (s *Server) Handler() http.Handler { return s.handler }
+func (s *Server) Handler() http.Handler        { return s.handler }
+func (s *Server) DataHandler() http.Handler    { return s.dataHandler }
+func (s *Server) ControlHandler() http.Handler { return s.controlHandler }
 
 func (s *Server) health(writer http.ResponseWriter, _ *http.Request) {
 	writeJSON(writer, http.StatusOK, map[string]string{"status": "ok", "instance_id": s.config.InstanceID})
@@ -79,6 +94,9 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 }
 
 func (s *Server) providerOptions(writer http.ResponseWriter, request *http.Request) {
+	if !requireScope(writer, request, identity.ScopeTargetsRead) {
+		return
+	}
 	principal, _ := identity.FromContext(request.Context())
 	options, err := s.config.ConfigStore.ProviderOptions(request.Context(), principal)
 	if err != nil {
@@ -86,6 +104,30 @@ func (s *Server) providerOptions(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	writeJSON(writer, http.StatusOK, options)
+}
+
+func (s *Server) openAIModels(writer http.ResponseWriter, request *http.Request) {
+	if !requireScope(writer, request, identity.ScopeTargetsRead) {
+		return
+	}
+	principal, _ := identity.FromContext(request.Context())
+	options, err := s.config.ConfigStore.ProviderOptions(request.Context(), principal)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	type model struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		OwnedBy string `json:"owned_by"`
+	}
+	models := []model{{ID: "llmkit-default", Object: "model", OwnedBy: "llmkit"}}
+	for _, provider := range options.Providers {
+		for _, target := range provider.Targets {
+			models = append(models, model{ID: target.ID, Object: "model", OwnedBy: string(target.OwnerScope)})
+		}
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"object": "list", "data": models, "revision": options.Revision})
 }
 
 type generateRequest struct {
@@ -96,6 +138,9 @@ type generateRequest struct {
 }
 
 func (s *Server) generate(writer http.ResponseWriter, request *http.Request) {
+	if !requireScope(writer, request, identity.ScopeInferenceExecute) {
+		return
+	}
 	var input generateRequest
 	if !s.decode(writer, request, &input) {
 		return
@@ -149,19 +194,26 @@ func (s *Server) streamGenerate(writer http.ResponseWriter, request *http.Reques
 	writer.Header().Set("Content-Type", "text/event-stream")
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.Header().Set("X-Accel-Buffering", "no")
-	writeSSE(writer, "routing", map[string]any{"target_id": target.ID, "target": target.Target})
+	normalizer := streamcontract.NewNormalizer(call.OperationID, call.OperationID)
+	created, _ := normalizer.Start()
+	created.TargetID = target.ID
+	writeSSE(writer, string(created.Type), created)
 	flusher.Flush()
 	usage := llmkit.Usage{Source: llmkit.UsageMissing}
 	for {
 		event, receiveErr := stream.Recv()
 		if receiveErr == io.EOF {
-			writeSSE(writer, "end", struct{}{})
+			if !normalizer.Terminal() {
+				failed := normalizer.Fail(&llmkit.ProviderError{Kind: llmkit.ErrorProtocol, SafeMessage: "provider stream ended without a terminal event"})
+				writeSSE(writer, string(failed.Type), failed)
+			}
 			flusher.Flush()
 			s.audit(request.Context(), principal, "generate_stream", call.OperationID, target.ID, usage, nil)
 			return
 		}
 		if receiveErr != nil {
-			writeSSE(writer, "error", normalizedError(receiveErr))
+			failed := normalizer.Fail(receiveErr)
+			writeSSE(writer, string(failed.Type), failed)
 			flusher.Flush()
 			s.audit(request.Context(), principal, "generate_stream", call.OperationID, target.ID, usage, receiveErr)
 			return
@@ -169,7 +221,15 @@ func (s *Server) streamGenerate(writer http.ResponseWriter, request *http.Reques
 		if event.Usage != nil {
 			usage = *event.Usage
 		}
-		writeSSE(writer, "event", event)
+		normalized, normalizeErr := normalizer.Accept(event)
+		if normalizeErr != nil {
+			failed := normalizer.Fail(&llmkit.ProviderError{Kind: llmkit.ErrorProtocol, SafeMessage: "provider emitted an invalid stream event"})
+			writeSSE(writer, string(failed.Type), failed)
+			flusher.Flush()
+			s.audit(request.Context(), principal, "generate_stream", call.OperationID, target.ID, usage, normalizeErr)
+			return
+		}
+		writeSSE(writer, string(normalized.Type), normalized)
 		flusher.Flush()
 	}
 }
@@ -182,6 +242,9 @@ type embedRequest struct {
 }
 
 func (s *Server) embed(writer http.ResponseWriter, request *http.Request) {
+	if !requireScope(writer, request, identity.ScopeInferenceExecute) {
+		return
+	}
 	var input embedRequest
 	if !s.decode(writer, request, &input) {
 		return
@@ -207,7 +270,82 @@ func (s *Server) embed(writer http.ResponseWriter, request *http.Request) {
 	writeJSON(writer, http.StatusOK, map[string]any{"target_id": target.ID, "target": target.Target, "response": response})
 }
 
+type rerankRequest struct {
+	OperationID string   `json:"operation_id,omitempty"`
+	TargetID    string   `json:"target_id,omitempty"`
+	Query       string   `json:"query"`
+	Documents   []string `json:"documents"`
+	TopN        *int     `json:"top_n,omitempty"`
+}
+
+func (s *Server) rerank(writer http.ResponseWriter, request *http.Request) {
+	if !requireScope(writer, request, identity.ScopeInferenceExecute) {
+		return
+	}
+	var input rerankRequest
+	if !s.decode(writer, request, &input) {
+		return
+	}
+	principal, _ := identity.FromContext(request.Context())
+	target, credential, release, err := s.resolveCredential(request.Context(), principal, input.TargetID)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	defer release()
+	reranker, ok := s.config.Registry.Reranker(target.Target.Provider)
+	if !ok {
+		writeError(writer, providerError(target.Target, llmkit.ErrorCapabilityNotSupported, "provider does not support reranking"))
+		return
+	}
+	response, err := reranker.Rerank(request.Context(), llmkit.RerankCall{OperationID: input.OperationID, Target: target.Target, Credential: credential, Query: input.Query, Documents: input.Documents, TopN: input.TopN})
+	s.audit(request.Context(), principal, "rerank", input.OperationID, target.ID, response.Usage, err)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"target_id": target.ID, "response": response})
+}
+
+type moderateRequest struct {
+	OperationID string               `json:"operation_id,omitempty"`
+	TargetID    string               `json:"target_id,omitempty"`
+	Content     []llmkit.ContentPart `json:"content"`
+}
+
+func (s *Server) moderate(writer http.ResponseWriter, request *http.Request) {
+	if !requireScope(writer, request, identity.ScopeInferenceExecute) {
+		return
+	}
+	var input moderateRequest
+	if !s.decode(writer, request, &input) {
+		return
+	}
+	principal, _ := identity.FromContext(request.Context())
+	target, credential, release, err := s.resolveCredential(request.Context(), principal, input.TargetID)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	defer release()
+	moderator, ok := s.config.Registry.Moderator(target.Target.Provider)
+	if !ok {
+		writeError(writer, providerError(target.Target, llmkit.ErrorCapabilityNotSupported, "provider does not support moderation"))
+		return
+	}
+	response, err := moderator.Moderate(request.Context(), llmkit.ModerateCall{OperationID: input.OperationID, Target: target.Target, Credential: credential, Content: input.Content})
+	s.audit(request.Context(), principal, "moderate", input.OperationID, target.ID, response.Usage, err)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"target_id": target.ID, "response": response})
+}
+
 func (s *Server) resolveCredential(ctx context.Context, principal identity.Principal, targetID string) (managed.Target, llmkit.CredentialHandle, func(), error) {
+	if targetID == "llmkit-default" {
+		targetID = ""
+	}
 	target, err := s.config.ConfigStore.ResolveTarget(ctx, principal, targetID)
 	if err != nil {
 		return managed.Target{}, nil, func() {}, err
@@ -237,6 +375,9 @@ func (s *Server) resolveCredential(ctx context.Context, principal identity.Princ
 }
 
 func (s *Server) upsertCustomProvider(writer http.ResponseWriter, request *http.Request) {
+	if !requireScope(writer, request, identity.ScopeProvidersWrite) || !requireScope(writer, request, identity.ScopeCredentialsWrite) {
+		return
+	}
 	if s.config.CustomProviders == nil {
 		writeAPIError(writer, http.StatusNotImplemented, "unsupported", "custom provider synchronization is unavailable")
 		return
@@ -246,11 +387,22 @@ func (s *Server) upsertCustomProvider(writer http.ResponseWriter, request *http.
 		return
 	}
 	defer clear(input.Credential.Value)
+	principal, _ := identity.FromContext(request.Context())
+	if input.BindingVersion != 0 && input.BindingVersion != principal.BindingVersion {
+		writeAPIError(writer, http.StatusConflict, "user_binding_changed", "user binding changed")
+		return
+	}
+	if input.IdempotencyKey == "" {
+		input.IdempotencyKey = request.Header.Get("Idempotency-Key")
+	}
+	if input.IdempotencyKey == "" {
+		writeAPIError(writer, http.StatusBadRequest, "invalid_request", "Idempotency-Key is required")
+		return
+	}
 	if err := routing.ValidateCustomProvider(input.Provider); err != nil {
 		writeAPIError(writer, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	principal, _ := identity.FromContext(request.Context())
 	options, err := s.config.CustomProviders.UpsertCustomProvider(request.Context(), principal, input)
 	if err != nil {
 		writeError(writer, err)
@@ -260,6 +412,9 @@ func (s *Server) upsertCustomProvider(writer http.ResponseWriter, request *http.
 }
 
 func (s *Server) deleteCustomProvider(writer http.ResponseWriter, request *http.Request) {
+	if !requireScope(writer, request, identity.ScopeProvidersWrite) {
+		return
+	}
 	if s.config.CustomProviders == nil {
 		writeAPIError(writer, http.StatusNotImplemented, "unsupported", "custom provider synchronization is unavailable")
 		return
@@ -290,7 +445,7 @@ func (s *Server) decode(writer http.ResponseWriter, request *http.Request, desti
 }
 
 func (s *Server) audit(ctx context.Context, principal identity.Principal, operation, operationID, targetID string, usage llmkit.Usage, operationErr error) {
-	event := managed.AuditEvent{Timestamp: time.Now().UTC(), TenantID: principal.TenantID, ClientID: principal.ClientID, Operation: operation, OperationID: operationID, TargetID: targetID, Outcome: "success", Usage: usage}
+	event := managed.AuditEvent{Timestamp: time.Now().UTC(), ClientID: principal.ClientID, UserID: principal.UserID, BindingVersion: principal.BindingVersion, Operation: operation, OperationID: operationID, TargetID: targetID, Outcome: "success", Usage: usage}
 	if operationErr != nil {
 		event.Outcome = "error"
 		event.ErrorKind = normalizedError(operationErr).Kind
@@ -330,6 +485,15 @@ func writeError(writer http.ResponseWriter, err error) {
 
 func writeAPIError(writer http.ResponseWriter, status int, kind, message string) {
 	writeJSON(writer, status, map[string]any{"error": apiError{Kind: kind, Message: message}})
+}
+
+func requireScope(writer http.ResponseWriter, request *http.Request, scope string) bool {
+	principal, ok := identity.FromContext(request.Context())
+	if !ok || !principal.HasScope(scope) {
+		writeAPIError(writer, http.StatusForbidden, string(llmkit.ErrorPermissionDenied), "operation is not permitted")
+		return false
+	}
+	return true
 }
 
 func writeJSON(writer http.ResponseWriter, status int, value any) {

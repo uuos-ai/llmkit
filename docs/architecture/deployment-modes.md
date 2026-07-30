@@ -1,171 +1,52 @@
-# llmkitd 部署模式、动态目录与存储边界
+# llmkitd 三种部署模式与安全边界
 
-## 已批准基线
+完整批准需求见 [spec-kit feature spec](../../specs/001-runtime-provider-sdk/spec.md)。本文只说明部署视图。
 
-`llmkitd` 是同一个 Provider SDK 的可选进程边界，不是另一套 Provider
-实现。模式通过默认配置和环境变量/CLI 切换：
-
-| 模式 | 传输 | 身份 | 自定义 Provider | 状态 |
+| 模式 | 默认传输 | client 身份 | user 绑定 | 凭据与状态 |
 | --- | --- | --- | --- | --- |
-| `sidecar`（默认） | UDS / named pipe，framed JSON | stdin 单会话密钥 | `disabled`，A2 本地合并 | 无状态；父进程退出即退出 |
-| `local-service` | UDS / named pipe，framed JSON | 每客户端 token → tenant/client | `disabled` 或 `managed` | 默认无状态；可选 SQLite + OS secret store |
-| `gateway` | HTTPS JSON + SSE | 每客户端 token → tenant/client | 强制 `managed` | 必须使用外部 Config/Secret/Audit Store |
+| `sidecar`（默认） | UDS / named pipe | 父 SDK 启动 token | 当前进程 | 无状态，request-scoped |
+| `local-service` | UDS / named pipe | enrollment 后的 `llmk_l1_` | 默认 instance 内，可选共享 store | 默认无状态；可选 SQLite + OS Keychain |
+| `gateway` | HTTPS JSON/SSE | OIDC/业务凭证 exchange 后的 `llmk_g1_` | 集群共享强一致 store | 外部 Config/Secret/Session/Audit Store |
 
-同一电脑可运行多个独立实例。每个实例设置不同 `instance_id`，并使用不同
-`socket` 或 `listen` 地址；修改进程名不是隔离机制。token 目录和本地目录
-快照也必须独立。还可通过不同 OS 用户或容器做更强隔离。握手/健康响应返回
-`instance_id`，便于客户端确认连接目标。
+## 多实例
 
-## 配置优先级
+每个进程使用不同 `instance_id + endpoint`。进程名称只用于显示，不参与发现、隔离或认证。sidecar 由一个父 SDK 独占；多个业务共享进程使用 local-service；跨机器使用 gateway。
 
-从低到高固定为：内置默认值 < 严格 YAML/JSON 文件 < `LLMKIT_*` 环境变量
-< CLI。未知字段、未知模式、不安全 instance ID、gateway 缺 TLS/存储等都会
-在启动前失败。安全字段只在启动时读取；业务目录和默认目标只在客户端触发
-刷新时重新读取。Provider 密钥不能作为普通配置、环境变量或 CLI 参数。
+配置优先级固定为：内置默认 < 严格 YAML/JSON < `LLMKIT_*` 环境变量 < CLI。安全配置只在启动时加载，密钥不得通过普通配置、命令行或环境变量传入。
 
-最小本地服务配置：
+## 身份模型
 
-```yaml
-mode: local-service
-instance_id: desktop-a
-socket: /var/run/user/1000/llmkit-desktop-a.sock
-client_token_hash_file: /etc/llmkit/clients.json
-custom_provider_sync: disabled
+`client_id` 表示一个独立业务。一个 client 同时最多绑定一个当前 `user_id`，但 user 可切换；`user_id` 只在 client 内有意义：
+
+```text
+client_a/user_1 != client_b/user_1
 ```
 
-token 文件权限必须是 `0600`（Windows 使用 ACL），内容只保存 SHA-256：
+同一个现实人物在不同业务中的不同 user ID 永不关联。用户切换原子递增 `binding_version`，旧 access/refresh token、目标快照、凭据租约和在途流立即失效。同一 client 的多个 `client_instance_id` 共享当前 user；每个 instance 最多一个活动会话。
 
-```json
-[
-  {
-    "tenant_id": "tenant-a",
-    "client_id": "editor",
-    "token_sha256": "<64 hex chars>",
-    "scopes": ["shutdown"]
-  }
-]
-```
+## 可用目标清单
 
-gateway 配置：
+统一使用“可用目标清单”，不使用“Provider 目录”。本地方法为 `get_available_targets`，gateway 为 `GET /v1/available-targets`；旧的 `resolve_provider_options` 和 `/v1/provider-options` 仅是 protocol v1 兼容别名。
 
-```yaml
-mode: gateway
-instance_id: tokyo-1
-listen: ":8443"
-client_token_hash_file: /etc/llmkit/clients.json
-custom_provider_sync: managed
-tls:
-  certificate_file: /etc/llmkit/tls.crt
-  private_key_file: /etc/llmkit/tls.key
-storage:
-  config_store: https://config.internal
-  secret_store: https://vault-adapter.internal
-  audit_store: https://audit.internal
-```
+快照包含 revision、binding_version、generated_at、refresh_after、stale_until、default_target_id 和 targets。客户端在启动、用户切换、场景触发及配置变更后原子刷新完整快照。显式 target 严格选择；省略使用最新默认。OpenAI 兼容接口用 `model: llmkit-default` 表达动态默认。
 
-可用 `LLMKIT_MODE`、`LLMKIT_INSTANCE_ID`、`LLMKIT_SOCKET`、
-`LLMKIT_LISTEN` 等同名环境变量覆盖，或使用 `llmkitd --mode ...`。完整字段
-以 `runtimeconfig.Config` 和 `llmkitd --help` 为准。
+启用同步时，业务 API 返回 business/client/user 三层的完整快照并作为唯一权威，llmkit 只缓存。禁用同步时合并本地内置、client 自定义和当前 user 自定义；默认 fresh 15 分钟，刷新失败可 stale 30 分钟。
 
-## Provider 目录与动态默认值
+## 凭据模式
 
-本地协议方法 `resolve_provider_options` 与 gateway
-`GET /v1/provider-options` 返回统一结构：
+- sidecar：request-scoped、workload、none。
+- local-service：同 sidecar；启用 managed 后支持内部 credential_ref + OS Keychain。
+- gateway：managed/workload/none；request-scoped 只有业务策略显式允许才开放。
 
-```json
-{
-  "revision": "sha256...",
-  "default_target_id": "business-qwen-fast",
-  "generated_at": "2026-07-30T00:00:00Z",
-  "providers": [
-    {
-      "id": "business-qwen",
-      "source": "business",
-      "targets": [
-        {
-          "id": "business-qwen-fast",
-          "target": {"provider": "dashscope", "model": "qwen-plus"}
-        }
-      ]
-    }
-  ]
-}
-```
+target 显式绑定 credential mode，不跨 business/client/user scope 回退。credential_ref 只存在于 ConfigStore → SecretStore 执行链路，不返回客户端。managed secret 使用 pending → active → retired 生命周期。
 
-客户端必须在启动和业务场景触发时刷新并替换本地缓存，不能永久假设默认值。
-调用时：
+## 控制面与数据面
 
-- 明确传 `target_id`：严格使用该 ID；不存在或不属于当前客户端则失败。
-- 不传 `target_id`：请求受理时使用该客户端最近一次刷新得到的
-  `default_target_id`。
-- 每个 Provider 可包含多个目标，因此一个客户端可配置多组
-  Provider + model + region + endpoint。
+数据面包含目标读取、推理、流、blob 与 token refresh。控制面包含 client/enrollment、Provider/凭据写入、runtime policy 与审计。生产 gateway 必须使用独立 listener/网络策略；local-service 使用独立 admin IPC；sidecar 即使共用 pipe 也使用独立 namespace 与 scopes。
 
-目录快照按可信 tenant/client 键隔离。客户端 A 提交的本地条目不能由客户端
-B 解析。
+## 持久化
 
-## 自定义 Provider 同步
-
-只有两种模式，不提供 metadata-only 中间态。
-
-### `disabled`（A2）
-
-自定义配置和密钥由客户端自行保存，不同步到业务平台。客户端调用
-`resolve_provider_options` 时可在 `local_custom_providers` 中提交不含密钥的
-Provider/target 定义；llmkitd 与业务内置目录合并，只在该客户端的进程内存
-保存最新快照。真正调用 Provider 时，凭据仍随请求传入并在使用后清理。
-
-### `managed`
-
-完整自定义配置同步到业务平台。gateway 强制此模式，通过：
-
-- `PUT /v1/custom-providers` 新增/更新配置与凭据；
-- `DELETE /v1/custom-providers/{provider_id}` 删除；
-- `GET /v1/provider-options` 重新取得业务内置项 + 用户自定义项。
-
-gateway 本身不把密钥写入 ConfigStore。`CustomProviderStore` 的业务实现负责
-把配置写入业务配置库、把密钥写入 Vault/KMS，并只向执行路径返回
-`credential_ref`。HTTP backend 把管理请求转发给业务 ConfigStore 服务，
-由业务平台完成原子性、版本冲突与密钥轮换。
-
-local-service 在 `managed` 模式下还可设置 `storage.sqlite_path`，启用内置
-`localstore`：非敏感 Provider/target 元数据写入权限为 `0600` 的 SQLite，
-凭据写入 macOS Keychain、Windows Credential Manager 或 Linux Secret
-Service。IPC 使用 `upsert_custom_provider` / `delete_custom_provider` 管理，
-执行时按 target ID 打开请求级凭据并立即释放。`disabled` 模式禁止启用该
-存储，继续保持 A2 完全由客户端保存。
-
-## Gateway API 与存储契约
-
-客户端 API：
-
-- `GET /v1/health`
-- `GET /v1/provider-options`
-- `POST /v1/generate`（`stream=true` 返回 SSE）
-- `POST /v1/embed`
-- `PUT /v1/custom-providers`
-- `DELETE /v1/custom-providers/{provider_id}`
-
-除 health 外均要求 `Authorization: Bearer <client-token>`。生成与 embedding
-只接受 `target_id`，不接受客户端 raw target 或 Provider 密钥。响应包含实际
-`target_id` 与不可变 `target`；SSE 首事件为 `routing`，随后为规范化 `event`，
-最后是 `end` 或规范化 `error`。
-
-`llmkitd` 的 HTTPS backend 使用配置证书做 mTLS 客户端认证，并调用：
-
-- ConfigStore：`GET /v1/provider-options`、`GET /v1/targets/{id|_default}`；
-- SecretStore：`POST /v1/credentials:open`，返回请求级 bearer/header 凭据；
-- AuditStore：`POST /v1/audit-events`，只含身份、operation、target、outcome、usage；
-- 业务自定义配置：`PUT/DELETE /v1/custom-providers...`。
-
-backend 调用携带可信 `X-LLMKit-Tenant-ID` 和 `X-LLMKit-Client-ID`。这些头只能
-在 mTLS/服务网格信任边界内使用，公网入口传入的同名头必须被覆盖。核心接口
-定义在 `managed` 包，可由业务直接嵌入实现，无需使用 HTTP backend。
-
-## 持久化原则
-
-- sidecar 无状态，不持久化凭据、目录或模型内容。
-- local-service 默认无状态；设置 `storage.sqlite_path` 与 `managed` 同步模式
-  后启用内置 SQLite + OS secret store。`disabled` 的 A2 目录只驻留内存。
-- gateway 必须有外部 ConfigStore、SecretStore、AuditStore，缺任一项启动失败。
-- prompt 和 response 默认不进入任何 Store；AuditEvent 只记录非内容元数据与 usage。
+- sidecar 不持久化业务状态。
+- local-service 默认无状态；managed profile 将非秘密元数据写 SQLite、秘密写 OS Keychain。
+- gateway 使用业务实现的外部 ports。
+- prompt、response 和工具参数默认不进入任何 store/log/trace/audit。

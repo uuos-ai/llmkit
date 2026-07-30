@@ -20,7 +20,7 @@ func TestSQLiteCatalogAndOSSecretStoreAreClientIsolated(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	principal := identity.Principal{TenantID: "tenant", ClientID: "a"}
+	principal := identity.Principal{ClientID: "a", UserID: "user"}
 	input := managed.CustomProviderInput{
 		Provider: routing.ProviderOption{ID: "custom", Source: routing.SourceCustom, Targets: []routing.TargetOption{{
 			ID: "custom-model", Target: llmkit.Target{Provider: "openai", Model: "model"},
@@ -50,7 +50,7 @@ func TestSQLiteCatalogAndOSSecretStoreAreClientIsolated(t *testing.T) {
 	if request.Header.Get("Authorization") != "Bearer secret" {
 		t.Fatalf("authorization = %q", request.Header.Get("Authorization"))
 	}
-	other := identity.Principal{TenantID: "tenant", ClientID: "b"}
+	other := identity.Principal{ClientID: "b", UserID: "user"}
 	if _, err := store.ResolveTarget(context.Background(), other, "custom-model"); err == nil {
 		t.Fatal("expected isolated target")
 	}

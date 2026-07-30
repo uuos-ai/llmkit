@@ -75,6 +75,24 @@ func (r *Registry) Embedder(id ProviderID) (Embedder, bool) {
 	return embedder, ok
 }
 
+func (r *Registry) Reranker(id ProviderID) (Reranker, bool) {
+	provider, ok := r.Get(id)
+	if !ok {
+		return nil, false
+	}
+	reranker, ok := provider.(Reranker)
+	return reranker, ok
+}
+
+func (r *Registry) Moderator(id ProviderID) (Moderator, bool) {
+	provider, ok := r.Get(id)
+	if !ok {
+		return nil, false
+	}
+	moderator, ok := provider.(Moderator)
+	return moderator, ok
+}
+
 func (r *Registry) CredentialValidator(id ProviderID) (CredentialValidator, bool) {
 	provider, ok := r.Get(id)
 	if !ok {

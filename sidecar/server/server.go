@@ -217,7 +217,8 @@ func (s *Server) handleHandshake(request protocol.Request, principal identity.Pr
 		ProtocolVersion: protocol.Version,
 		SidecarVersion:  s.build.SidecarVersion, LLMKitVersion: s.build.LLMKitVersion,
 		BuildID: s.build.BuildID, InstanceID: s.build.InstanceID,
-		TenantID: principal.TenantID, ClientID: principal.ClientID,
+		ClientID: principal.ClientID, ClientInstanceID: principal.ClientInstanceID,
+		UserID: principal.UserID, BindingVersion: principal.BindingVersion,
 		Methods: methods,
 	}
 	return writer.result(request.RequestID, payload)

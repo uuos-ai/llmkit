@@ -11,6 +11,7 @@ import (
 	"github.com/uuos-ai/llmkit/providers/minimax"
 	"github.com/uuos-ai/llmkit/providers/moonshot"
 	"github.com/uuos-ai/llmkit/providers/openai"
+	"github.com/uuos-ai/llmkit/providers/tokenhub"
 	"github.com/uuos-ai/llmkit/providers/volcengine"
 	"github.com/uuos-ai/llmkit/providers/zhipu"
 )
@@ -28,6 +29,7 @@ func NewRegistry() (*llmkit.Registry, error) {
 		func() (llmkit.Provider, error) { return volcengine.New(volcengine.Config{}) },
 		func() (llmkit.Provider, error) { return hunyuan.New(hunyuan.Config{}) },
 		func() (llmkit.Provider, error) { return moonshot.New(moonshot.Config{}) },
+		func() (llmkit.Provider, error) { return tokenhub.New(tokenhub.Config{}) },
 	}
 	for _, construct := range constructors {
 		provider, err := construct()

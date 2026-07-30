@@ -56,24 +56,24 @@ func (s *Store) initialize() error {
 PRAGMA busy_timeout=5000;
 PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS custom_providers (
- tenant_id TEXT NOT NULL,
  client_id TEXT NOT NULL,
+ user_id TEXT NOT NULL,
  provider_id TEXT NOT NULL,
  definition_json BLOB NOT NULL,
  credential_ref TEXT NOT NULL,
  updated_at TEXT NOT NULL,
- PRIMARY KEY (tenant_id, client_id, provider_id)
+ PRIMARY KEY (client_id, user_id, provider_id)
 );
 CREATE TABLE IF NOT EXISTS custom_targets (
- tenant_id TEXT NOT NULL,
  client_id TEXT NOT NULL,
+ user_id TEXT NOT NULL,
  target_id TEXT NOT NULL,
  provider_id TEXT NOT NULL,
  target_json BLOB NOT NULL,
  credential_ref TEXT NOT NULL,
- PRIMARY KEY (tenant_id, client_id, target_id),
- FOREIGN KEY (tenant_id, client_id, provider_id)
-   REFERENCES custom_providers(tenant_id, client_id, provider_id) ON DELETE CASCADE
+ PRIMARY KEY (client_id, user_id, target_id),
+ FOREIGN KEY (client_id, user_id, provider_id)
+   REFERENCES custom_providers(client_id, user_id, provider_id) ON DELETE CASCADE
 );`)
 	if err != nil {
 		return errors.New("localstore: SQLite schema could not be initialized")
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS custom_targets (
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) ProviderOptions(ctx context.Context, principal identity.Principal) (routing.OptionsResponse, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT definition_json FROM custom_providers WHERE tenant_id=? AND client_id=? ORDER BY provider_id`, principal.TenantID, principal.ClientID)
+	rows, err := s.db.QueryContext(ctx, `SELECT definition_json FROM custom_providers WHERE client_id=? AND user_id=? ORDER BY provider_id`, principal.ClientID, principal.UserID)
 	if err != nil {
 		return routing.OptionsResponse{}, errors.New("localstore: catalog query failed")
 	}
@@ -113,7 +113,7 @@ func (s *Store) ResolveTarget(ctx context.Context, principal identity.Principal,
 	}
 	var encoded []byte
 	var reference string
-	err := s.db.QueryRowContext(ctx, `SELECT target_json, credential_ref FROM custom_targets WHERE tenant_id=? AND client_id=? AND target_id=?`, principal.TenantID, principal.ClientID, targetID).Scan(&encoded, &reference)
+	err := s.db.QueryRowContext(ctx, `SELECT target_json, credential_ref FROM custom_targets WHERE client_id=? AND user_id=? AND target_id=?`, principal.ClientID, principal.UserID, targetID).Scan(&encoded, &reference)
 	if errors.Is(err, sql.ErrNoRows) {
 		return managed.Target{}, &llmkit.ProviderError{Kind: llmkit.ErrorModelNotFound, SafeMessage: "local custom target was not found"}
 	}
@@ -167,17 +167,17 @@ func (s *Store) UpsertCustomProvider(ctx context.Context, principal identity.Pri
 		_ = tx.Rollback()
 		restoreSecret()
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO custom_providers(tenant_id,client_id,provider_id,definition_json,credential_ref,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(tenant_id,client_id,provider_id) DO UPDATE SET definition_json=excluded.definition_json,credential_ref=excluded.credential_ref,updated_at=excluded.updated_at`, principal.TenantID, principal.ClientID, input.Provider.ID, providerJSON, reference, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO custom_providers(client_id,user_id,provider_id,definition_json,credential_ref,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(client_id,user_id,provider_id) DO UPDATE SET definition_json=excluded.definition_json,credential_ref=excluded.credential_ref,updated_at=excluded.updated_at`, principal.ClientID, principal.UserID, input.Provider.ID, providerJSON, reference, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		rollback()
 		return routing.OptionsResponse{}, errors.New("localstore: provider write failed")
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM custom_targets WHERE tenant_id=? AND client_id=? AND provider_id=?`, principal.TenantID, principal.ClientID, input.Provider.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM custom_targets WHERE client_id=? AND user_id=? AND provider_id=?`, principal.ClientID, principal.UserID, input.Provider.ID); err != nil {
 		rollback()
 		return routing.OptionsResponse{}, errors.New("localstore: target replacement failed")
 	}
 	for _, option := range input.Provider.Targets {
 		targetJSON, _ := json.Marshal(option.Target)
-		if _, err := tx.ExecContext(ctx, `INSERT INTO custom_targets(tenant_id,client_id,target_id,provider_id,target_json,credential_ref) VALUES(?,?,?,?,?,?)`, principal.TenantID, principal.ClientID, option.ID, input.Provider.ID, targetJSON, reference); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO custom_targets(client_id,user_id,target_id,provider_id,target_json,credential_ref) VALUES(?,?,?,?,?,?)`, principal.ClientID, principal.UserID, option.ID, input.Provider.ID, targetJSON, reference); err != nil {
 			rollback()
 			return routing.OptionsResponse{}, errors.New("localstore: target write failed")
 		}
@@ -194,7 +194,7 @@ func (s *Store) DeleteCustomProvider(ctx context.Context, principal identity.Pri
 		return routing.OptionsResponse{}, errors.New("localstore: provider ID is required")
 	}
 	var reference string
-	err := s.db.QueryRowContext(ctx, `SELECT credential_ref FROM custom_providers WHERE tenant_id=? AND client_id=? AND provider_id=?`, principal.TenantID, principal.ClientID, providerID).Scan(&reference)
+	err := s.db.QueryRowContext(ctx, `SELECT credential_ref FROM custom_providers WHERE client_id=? AND user_id=? AND provider_id=?`, principal.ClientID, principal.UserID, providerID).Scan(&reference)
 	if errors.Is(err, sql.ErrNoRows) {
 		return s.ProviderOptions(ctx, principal)
 	}
@@ -209,7 +209,7 @@ func (s *Store) DeleteCustomProvider(ctx context.Context, principal identity.Pri
 	if err := keyring.Delete(s.service, account); err != nil && !errors.Is(err, keyring.ErrNotFound) {
 		return routing.OptionsResponse{}, errors.New("localstore: OS secret store delete failed")
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM custom_providers WHERE tenant_id=? AND client_id=? AND provider_id=?`, principal.TenantID, principal.ClientID, providerID); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM custom_providers WHERE client_id=? AND user_id=? AND provider_id=?`, principal.ClientID, principal.UserID, providerID); err != nil {
 		if getErr == nil {
 			_ = keyring.Set(s.service, account, oldSecret)
 		}
@@ -285,7 +285,7 @@ func newCredentialHandle(input managed.CredentialInput) (*credentialHandle, erro
 }
 
 func accountName(principal identity.Principal, reference string) string {
-	return fmt.Sprintf("%x/%x/%s", principal.TenantID, principal.ClientID, strings.ReplaceAll(reference, "/", "_"))
+	return fmt.Sprintf("%x/%x/%s", principal.ClientID, principal.UserID, strings.ReplaceAll(reference, "/", "_"))
 }
 
 var _ managed.ConfigStore = (*Store)(nil)

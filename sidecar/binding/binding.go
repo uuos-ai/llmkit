@@ -44,6 +44,8 @@ func Register(target *server.Server, config Config) error {
 		protocol.MethodValidateCredential: binding.validateCredential,
 		protocol.MethodGenerate:           binding.generate,
 		protocol.MethodEmbed:              binding.embed,
+		protocol.MethodRerank:             binding.rerank,
+		protocol.MethodModerate:           binding.moderate,
 	} {
 		if err := target.Register(method, handler); err != nil {
 			return err
@@ -51,6 +53,9 @@ func Register(target *server.Server, config Config) error {
 	}
 	if config.Routes != nil {
 		if err := target.Register(protocol.MethodResolveOptions, binding.resolveOptions); err != nil {
+			return err
+		}
+		if err := target.Register(protocol.MethodAvailableTargets, binding.resolveOptions); err != nil {
 			return err
 		}
 	}
@@ -292,6 +297,54 @@ func (b *binder) embed(ctx context.Context, payload json.RawMessage) (any, error
 	})
 }
 
+func (b *binder) rerank(ctx context.Context, payload json.RawMessage) (any, error) {
+	var request protocol.RerankRequest
+	if err := decode(payload, &request); err != nil {
+		return nil, err
+	}
+	defer clear(request.Credential.Value)
+	var err error
+	var resolvedID string
+	request.Target, resolvedID, err = b.resolveTarget(ctx, request.TargetID, request.Target)
+	if err != nil {
+		return nil, err
+	}
+	reranker, ok := b.registry.Reranker(request.Target.Provider)
+	if !ok {
+		return nil, unsupported(request.Target, "provider does not support reranking")
+	}
+	credential, release, err := b.openCredential(ctx, resolvedID, request.Target, request.Credential)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return reranker.Rerank(ctx, llmkit.RerankCall{OperationID: request.OperationID, Target: request.Target, Credential: credential, Query: request.Query, Documents: request.Documents, TopN: request.TopN})
+}
+
+func (b *binder) moderate(ctx context.Context, payload json.RawMessage) (any, error) {
+	var request protocol.ModerateRequest
+	if err := decode(payload, &request); err != nil {
+		return nil, err
+	}
+	defer clear(request.Credential.Value)
+	var err error
+	var resolvedID string
+	request.Target, resolvedID, err = b.resolveTarget(ctx, request.TargetID, request.Target)
+	if err != nil {
+		return nil, err
+	}
+	moderator, ok := b.registry.Moderator(request.Target.Provider)
+	if !ok {
+		return nil, unsupported(request.Target, "provider does not support moderation")
+	}
+	credential, release, err := b.openCredential(ctx, resolvedID, request.Target, request.Credential)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return moderator.Moderate(ctx, llmkit.ModerateCall{OperationID: request.OperationID, Target: request.Target, Credential: credential, Content: request.Content})
+}
+
 func (b *binder) resolveTarget(ctx context.Context, targetID string, raw llmkit.Target) (llmkit.Target, string, error) {
 	if targetID == "" && raw.Provider != "" {
 		return raw, "", nil
@@ -330,7 +383,7 @@ func (b *binder) openCredential(ctx context.Context, targetID string, target llm
 		return nil, func() {}, err
 	}
 	if managedTarget.ID != targetID || managedTarget.Target != target || managedTarget.CredentialRef == "" {
-		return nil, func() {}, &llmkit.ProviderError{Provider: target.Provider, Model: target.Model, Kind: llmkit.ErrorPermission, SafeMessage: "managed target does not match the current catalog"}
+		return nil, func() {}, &llmkit.ProviderError{Provider: target.Provider, Model: target.Model, Kind: llmkit.ErrorPermission, SafeMessage: "managed target does not match the current available target list"}
 	}
 	handle, release, err := b.managed.OpenCredential(ctx, principal, managedTarget.CredentialRef)
 	if release == nil {

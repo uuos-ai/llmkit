@@ -23,7 +23,7 @@ func TestDoRetriesSameTarget(t *testing.T) {
 			t.Fatalf("target changed: %#v", got)
 		}
 		if attempts < 3 {
-			return "", &llmkit.ProviderError{Kind: llmkit.ErrorOverloaded, Retryable: true}
+			return "", &llmkit.ProviderError{Kind: llmkit.ErrorOverloaded, Retryable: true, Phase: llmkit.PhaseConnect}
 		}
 		return "ok", nil
 	})
@@ -56,10 +56,25 @@ func TestDoStopsWhileWaiting(t *testing.T) {
 		return struct{}{}, &llmkit.ProviderError{
 			Kind:      llmkit.ErrorOverloaded,
 			Retryable: true,
+			Phase:     llmkit.PhaseConnect,
 		}
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context cancellation", err)
+	}
+}
+
+func TestSafeRejectsUnknownOutcomeAndOutputStarted(t *testing.T) {
+	unknown := &llmkit.ProviderError{Kind: llmkit.ErrorOutcomeUnknown, Retryable: true, Phase: llmkit.PhaseReadBody}
+	if Safe(unknown, true, false) {
+		t.Fatal("unknown outcome was retryable")
+	}
+	connect := &llmkit.ProviderError{Kind: llmkit.ErrorProviderUnavailable, Retryable: true, Phase: llmkit.PhaseConnect}
+	if !Safe(connect, false, false) {
+		t.Fatal("pre-dispatch connect failure was not retryable")
+	}
+	if Safe(connect, true, true) {
+		t.Fatal("request with output was retryable")
 	}
 }
 

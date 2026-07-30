@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,7 +84,7 @@ func (b *Backend) OpenCredential(ctx context.Context, principal identity.Princip
 }
 
 func (b *Backend) Append(ctx context.Context, event managed.AuditEvent) error {
-	return b.call(ctx, identity.Principal{TenantID: event.TenantID, ClientID: event.ClientID}, http.MethodPost, b.auditURL+"/v1/audit-events", event, nil)
+	return b.call(ctx, identity.Principal{ClientID: event.ClientID, UserID: event.UserID, BindingVersion: event.BindingVersion}, http.MethodPost, b.auditURL+"/v1/audit-events", event, nil)
 }
 
 func (b *Backend) UpsertCustomProvider(ctx context.Context, principal identity.Principal, input managed.CustomProviderInput) (routing.OptionsResponse, error) {
@@ -116,8 +117,9 @@ func (b *Backend) call(ctx context.Context, principal identity.Principal, method
 		return errors.New("managed http backend: request construction failed")
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-LLMKit-Tenant-ID", principal.TenantID)
 	request.Header.Set("X-LLMKit-Client-ID", principal.ClientID)
+	request.Header.Set("X-LLMKit-User-ID", principal.UserID)
+	request.Header.Set("X-LLMKit-Binding-Version", strconv.FormatUint(principal.BindingVersion, 10))
 	response, err := b.client.Do(request)
 	if err != nil {
 		return errors.New("managed http backend: store is unavailable")

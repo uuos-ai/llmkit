@@ -15,7 +15,7 @@ Status: implementation baseline (`1.0`).
   and malformed frames fail closed.
 - The first request on each connection must be an authenticated `handshake`.
   Every later request repeats the current token and protocol version.
-  Local-service maps each token hash to a trusted tenant/client identity.
+  Local-service maps each token family to a trusted client identity and client-local current user binding.
 
 ## Envelope
 

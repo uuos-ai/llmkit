@@ -48,7 +48,7 @@ type Config struct {
 	Listen              string             `json:"listen" yaml:"listen"`
 	ParentPID           int                `json:"parent_pid" yaml:"parent_pid"`
 	ClientTokenHashFile string             `json:"client_token_hash_file" yaml:"client_token_hash_file"`
-	BusinessCatalogURL  string             `json:"business_catalog_url" yaml:"business_catalog_url"`
+	BusinessTargetsURL  string             `json:"business_targets_url" yaml:"business_targets_url"`
 	CustomProviderSync  CustomProviderSync `json:"custom_provider_sync" yaml:"custom_provider_sync"`
 	MaxFrameBytes       uint32             `json:"max_frame_bytes" yaml:"max_frame_bytes"`
 	TLS                 TLSConfig          `json:"tls" yaml:"tls"`
@@ -62,7 +62,7 @@ type Overrides struct {
 	Listen              *string
 	ParentPID           *int
 	ClientTokenHashFile *string
-	BusinessCatalogURL  *string
+	BusinessTargetsURL  *string
 	CustomProviderSync  *CustomProviderSync
 	MaxFrameBytes       *uint32
 	TLSCertificateFile  *string
@@ -127,8 +127,8 @@ func (c Config) Validate() error {
 		if c.Storage.SQLitePath != "" && c.CustomProviderSync != SyncManaged {
 			return errors.New("llmkitd config: local SQLite/OS secret storage requires custom_provider_sync=managed")
 		}
-		if c.CustomProviderSync == SyncManaged && c.BusinessCatalogURL == "" && c.Storage.SQLitePath == "" {
-			return errors.New("llmkitd config: managed local-service requires business_catalog_url or storage.sqlite_path")
+		if c.CustomProviderSync == SyncManaged && c.BusinessTargetsURL == "" && c.Storage.SQLitePath == "" {
+			return errors.New("llmkitd config: managed local-service requires business_targets_url or storage.sqlite_path")
 		}
 	case ModeGateway:
 		if c.Listen == "" || c.ClientTokenHashFile == "" {
@@ -188,7 +188,7 @@ func applyEnvironment(config *Config, lookup LookupEnv) error {
 	setString("LLMKIT_SOCKET", &config.Socket)
 	setString("LLMKIT_LISTEN", &config.Listen)
 	setString("LLMKIT_CLIENT_TOKEN_HASH_FILE", &config.ClientTokenHashFile)
-	setString("LLMKIT_BUSINESS_CATALOG_URL", &config.BusinessCatalogURL)
+	setString("LLMKIT_BUSINESS_TARGETS_URL", &config.BusinessTargetsURL)
 	setString("LLMKIT_TLS_CERTIFICATE_FILE", &config.TLS.CertificateFile)
 	setString("LLMKIT_TLS_PRIVATE_KEY_FILE", &config.TLS.PrivateKeyFile)
 	setString("LLMKIT_CONFIG_STORE", &config.Storage.ConfigStore)
@@ -234,8 +234,8 @@ func applyOverrides(config *Config, overrides Overrides) {
 	if overrides.ClientTokenHashFile != nil {
 		config.ClientTokenHashFile = *overrides.ClientTokenHashFile
 	}
-	if overrides.BusinessCatalogURL != nil {
-		config.BusinessCatalogURL = *overrides.BusinessCatalogURL
+	if overrides.BusinessTargetsURL != nil {
+		config.BusinessTargetsURL = *overrides.BusinessTargetsURL
 	}
 	if overrides.CustomProviderSync != nil {
 		config.CustomProviderSync = *overrides.CustomProviderSync

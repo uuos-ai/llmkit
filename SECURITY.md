@@ -22,10 +22,10 @@ first release.
 - Streaming and non-streaming response bodies are bounded.
 - Cancellation must stop network work and must not trigger automatic retry.
 - Sidecar and local-service use protected local IPC. Local-service authenticates
-  every client token into an isolated tenant/client identity.
+  every token into an isolated client identity and client-local current user binding.
 - Gateway binds HTTPS only, forces managed custom-provider synchronization, and
   requires external ConfigStore, SecretStore, and AuditStore implementations.
 - Prompt/response content is not persisted by default. Secrets remain
   request-scoped or are opened from a Vault/KMS-backed SecretStore reference.
-- Optional managed local persistence stores only non-secret catalog metadata in
+- Optional managed local persistence stores only non-secret available-target metadata in
   a `0600` SQLite file and keeps Provider credentials in the OS keyring.

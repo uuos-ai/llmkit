@@ -42,8 +42,8 @@ notes and tests.
 The accepted `llmkitd` baseline adds packages without changing Provider adapter
 interfaces:
 
-- `identity`: token-to-tenant/client authentication and context propagation;
-- `routing`: unified business/custom catalogs, dynamic defaults, isolated
+- `identity`: token-to-client authentication, client-local user binding and context propagation;
+- `routing`: unified business/custom available-target snapshots, dynamic defaults, isolated
   session views, and caller-triggered client cache replacement;
 - `managed`: external ConfigStore, SecretStore, AuditStore, and custom-provider
   synchronization ports;
@@ -52,6 +52,19 @@ interfaces:
 - `runtimeconfig`: strict three-mode startup configuration.
 
 IPC v1 adds optional handshake identity/instance fields, optional `target_id`
-fields, and `resolve_provider_options`. Existing explicit raw-target sidecar
+fields, `get_available_targets`, and the v1 alias `resolve_provider_options`. Existing explicit raw-target sidecar
 calls remain valid. The legacy `llmkit-sidecar` command remains buildable;
 release artifacts move to the three-mode `llmkitd` binary before v1.0.
+
+## Unreleased identity and protocol normalization
+
+- `tenant_id` is removed before v1.0. `client_id` is the business isolation key;
+  `user_id` is client-local and `binding_version` fences user switches.
+- Existing pre-v1 local SQLite files with `tenant_id` are not silently reinterpreted
+  as users. Export/re-enroll through the managed API before adopting this schema.
+- New clients use `get_available_targets` and `/v1/available-targets`; the old
+  provider-options names remain v1 aliases during migration.
+- Error string values now use the approved normalized vocabulary. Go constant
+  compatibility names remain available, but serialized clients must migrate.
+- Public streams use `response.*`, `content.*`, `tool_call.*` and `usage.updated`
+  events with sequence numbers and a unique terminal state.

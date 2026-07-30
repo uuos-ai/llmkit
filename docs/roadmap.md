@@ -35,7 +35,7 @@
 - [x] MiniMax Chat profile
 - [x] Tencent Hunyuan Chat/Embedding profile
 - [x] Provider capability discovery 缓存（host-triggered、TTL、并发合并）
-- [x] 远端模型目录枚举、Provider 特定分页刷新器与凭据作用域隔离缓存
+- [x] 远端候选模型枚举、Provider 特定分页刷新器与凭据作用域隔离缓存
 
 ## Phase 4：可靠性工具
 
@@ -61,7 +61,7 @@
 - [x] 单一 `llmkitd` 二进制支持 sidecar、local-service、gateway
 - [x] 配置优先级：默认值 < 严格 YAML/JSON < 环境变量 < CLI
 - [x] `instance_id` + 独立 socket/listen 支持同机多实例；兼容 OS 用户与容器隔离
-- [x] 每客户端 token 映射可信 tenant/client，目录快照按客户端隔离
+- [x] 每客户端 token 映射可信 client，当前 user 与可用目标快照按 client/user 隔离
 - [x] 动态 Provider API 合并业务内置项与 A2 客户端本地自定义项
 - [x] 显式 `target_id` 严格解析，省略时采用最新目录默认值
 - [x] disabled 与 managed 两种自定义 Provider 同步模式；gateway 强制 managed

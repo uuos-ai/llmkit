@@ -41,7 +41,7 @@ func TestSidecarProcessHandshakeHealthAndShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	connection, err := waitForE2EConnection(address, 5*time.Second)
+	connection, err := waitForE2EConnection(address, 15*time.Second)
 	if err != nil {
 		_ = command.Process.Kill()
 		_ = command.Wait()

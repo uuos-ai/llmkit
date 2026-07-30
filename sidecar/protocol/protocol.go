@@ -24,11 +24,16 @@ const (
 	MethodListCapabilities   Method = "list_capabilities"
 	MethodListModels         Method = "list_models"
 	MethodValidateCredential Method = "validate_credential"
-	MethodResolveOptions     Method = "resolve_provider_options"
-	MethodUpsertCustom       Method = "upsert_custom_provider"
-	MethodDeleteCustom       Method = "delete_custom_provider"
-	MethodGenerate           Method = "generate"
-	MethodEmbed              Method = "embed"
+	MethodAvailableTargets   Method = "get_available_targets"
+	// MethodResolveOptions is retained as a v1 compatibility alias. New SDKs
+	// use MethodAvailableTargets and the "available target list" terminology.
+	MethodResolveOptions Method = "resolve_provider_options"
+	MethodUpsertCustom   Method = "upsert_custom_provider"
+	MethodDeleteCustom   Method = "delete_custom_provider"
+	MethodGenerate       Method = "generate"
+	MethodEmbed          Method = "embed"
+	MethodRerank         Method = "rerank"
+	MethodModerate       Method = "moderate"
 )
 
 type MessageType string
@@ -72,14 +77,16 @@ type HandshakeRequest struct {
 }
 
 type HandshakeResponse struct {
-	ProtocolVersion string   `json:"protocol_version"`
-	SidecarVersion  string   `json:"sidecar_version"`
-	LLMKitVersion   string   `json:"llmkit_version"`
-	BuildID         string   `json:"build_id"`
-	InstanceID      string   `json:"instance_id"`
-	TenantID        string   `json:"tenant_id,omitempty"`
-	ClientID        string   `json:"client_id"`
-	Methods         []Method `json:"methods"`
+	ProtocolVersion  string   `json:"protocol_version"`
+	SidecarVersion   string   `json:"sidecar_version"`
+	LLMKitVersion    string   `json:"llmkit_version"`
+	BuildID          string   `json:"build_id"`
+	InstanceID       string   `json:"instance_id"`
+	ClientID         string   `json:"client_id"`
+	ClientInstanceID string   `json:"client_instance_id,omitempty"`
+	UserID           string   `json:"user_id,omitempty"`
+	BindingVersion   uint64   `json:"binding_version,omitempty"`
+	Methods          []Method `json:"methods"`
 }
 
 type HealthResponse struct {

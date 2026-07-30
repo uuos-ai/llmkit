@@ -1,5 +1,6 @@
-// Package identity authenticates llmkitd clients and carries trusted tenant
-// and client identity through request contexts.
+// Package identity authenticates llmkitd clients. A client identifies one
+// embedding business; UserID is that client's currently bound user and has no
+// meaning outside the ClientID namespace.
 package identity
 
 import (
@@ -18,12 +19,33 @@ import (
 )
 
 type Principal struct {
-	TenantID string
-	ClientID string
-	Scopes   map[string]struct{}
+	ClientID         string
+	ClientInstanceID string
+	UserID           string
+	BindingVersion   uint64
+	Scopes           map[string]struct{}
 }
 
-func (p Principal) Key() string { return p.TenantID + "\x00" + p.ClientID }
+const (
+	ScopeTargetsRead      = "targets:read"
+	ScopeInferenceExecute = "inference:execute"
+	ScopeProvidersWrite   = "providers:write"
+	ScopeCredentialsWrite = "credentials:write"
+	ScopeUsersBind        = "users:bind"
+	ScopeBlobsWrite       = "blobs:write"
+	ScopeTokensRefresh    = "tokens:refresh"
+	ScopeAuditRead        = "audit:read"
+	ScopeAdminClients     = "admin:clients"
+	ScopeAdminRuntime     = "admin:runtime"
+)
+
+func (p Principal) Key() string { return p.ClientID + "\x00" + p.UserID }
+
+func (p Principal) ClientKey() string { return p.ClientID }
+
+func (p Principal) SessionKey() string {
+	return p.ClientID + "\x00" + p.ClientInstanceID
+}
 
 func (p Principal) HasScope(scope string) bool {
 	_, ok := p.Scopes[scope]
@@ -70,10 +92,12 @@ func (s *singleToken) Destroy() {
 }
 
 type TokenRecord struct {
-	TenantID    string   `json:"tenant_id"`
-	ClientID    string   `json:"client_id"`
-	TokenSHA256 string   `json:"token_sha256"`
-	Scopes      []string `json:"scopes,omitempty"`
+	ClientID         string   `json:"client_id"`
+	ClientInstanceID string   `json:"client_instance_id,omitempty"`
+	UserID           string   `json:"user_id,omitempty"`
+	BindingVersion   uint64   `json:"binding_version,omitempty"`
+	TokenSHA256      string   `json:"token_sha256"`
+	Scopes           []string `json:"scopes,omitempty"`
 }
 
 type StaticTokens struct {
@@ -102,7 +126,8 @@ func NewStaticTokens(records []TokenRecord) (*StaticTokens, error) {
 			}
 		}
 		store.records[digest] = Principal{
-			TenantID: record.TenantID, ClientID: record.ClientID, Scopes: scopes,
+			ClientID: record.ClientID, ClientInstanceID: record.ClientInstanceID,
+			UserID: record.UserID, BindingVersion: record.BindingVersion, Scopes: scopes,
 		}
 	}
 	if len(store.records) == 0 {

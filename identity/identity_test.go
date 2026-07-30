@@ -9,14 +9,14 @@ func TestStaticTokensAuthenticateAndIsolate(t *testing.T) {
 	tokenA := []byte("0123456789abcdef0123456789abcdef")
 	tokenB := []byte("abcdef0123456789abcdef0123456789")
 	store, err := NewStaticTokens([]TokenRecord{
-		{TenantID: "tenant-a", ClientID: "client-a", TokenSHA256: HashToken(tokenA), Scopes: []string{"generate"}},
-		{TenantID: "tenant-b", ClientID: "client-b", TokenSHA256: HashToken(tokenB)},
+		{ClientID: "client-a", UserID: "user-a", TokenSHA256: HashToken(tokenA), Scopes: []string{"generate"}},
+		{ClientID: "client-b", UserID: "user-b", TokenSHA256: HashToken(tokenB)},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	principal, ok := store.Authenticate(context.Background(), tokenA)
-	if !ok || principal.TenantID != "tenant-a" || !principal.HasScope("generate") {
+	if !ok || principal.UserID != "user-a" || !principal.HasScope("generate") {
 		t.Fatalf("principal = %#v, ok=%v", principal, ok)
 	}
 	if _, ok := store.Authenticate(context.Background(), []byte("wrong")); ok {

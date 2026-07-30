@@ -12,9 +12,32 @@ import (
 )
 
 type Policy struct {
-	MaxAttempts int
-	Backoff     func(attempt int) time.Duration
-	MaxDelay    time.Duration
+	MaxAttempts        int
+	MaxTotalAttempts   int
+	ProviderIdempotent bool
+	Backoff            func(attempt int) time.Duration
+	MaxDelay           time.Duration
+}
+
+// Safe reports whether a failed generation may be retried without silently
+// risking duplicate billing. Once output started, retry is never safe.
+func Safe(err error, providerIdempotent, outputStarted bool) bool {
+	if outputStarted {
+		return false
+	}
+	var providerErr *llmkit.ProviderError
+	if !errors.As(err, &providerErr) || !providerErr.Retryable {
+		return false
+	}
+	switch providerErr.Kind {
+	case llmkit.ErrorCancelled, llmkit.ErrorInvalidRequest, llmkit.ErrorAuthenticationFailed,
+		llmkit.ErrorPermissionDenied, llmkit.ErrorContentFiltered, llmkit.ErrorOutcomeUnknown:
+		return false
+	}
+	if providerIdempotent {
+		return true
+	}
+	return providerErr.Phase == llmkit.PhaseResolveDNS || providerErr.Phase == llmkit.PhaseConnect || providerErr.Phase == llmkit.PhaseTLS
 }
 
 func Do[T any](
@@ -32,7 +55,7 @@ func Do[T any](
 		if err == nil {
 			return result, nil
 		}
-		if attempt == policy.MaxAttempts || !isRetryable(err) {
+		if attempt == policy.MaxAttempts || !Safe(err, policy.ProviderIdempotent, false) {
 			return zero, err
 		}
 		delay := retryDelay(err, policy, attempt)
@@ -50,13 +73,6 @@ func Do[T any](
 		}
 	}
 	return zero, errors.New("retry: unreachable")
-}
-
-func isRetryable(err error) bool {
-	var providerErr *llmkit.ProviderError
-	return errors.As(err, &providerErr) &&
-		providerErr.Retryable &&
-		providerErr.Kind != llmkit.ErrorCanceled
 }
 
 func retryDelay(err error, policy Policy, attempt int) time.Duration {

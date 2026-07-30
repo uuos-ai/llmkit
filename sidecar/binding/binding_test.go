@@ -203,7 +203,7 @@ func TestStreamingUsesBackpressuredEventSequence(t *testing.T) {
 
 func TestTargetIDUsesClientCatalogAndDynamicDefault(t *testing.T) {
 	binding, provider := testBinder(t)
-	principal := identity.Principal{TenantID: "tenant", ClientID: "client"}
+	principal := identity.Principal{ClientID: "client", UserID: "user"}
 	routes := routing.NewSessionCatalog(routing.SourceFunc(func(context.Context, identity.Principal) (routing.OptionsResponse, error) {
 		return routing.OptionsResponse{DefaultTargetID: "dynamic", Providers: []routing.ProviderOption{{
 			ID: "business", Source: routing.SourceBusiness, Targets: []routing.TargetOption{{
@@ -251,7 +251,7 @@ func (fakeManagedStore) DeleteCustomProvider(context.Context, identity.Principal
 func TestManagedTargetOpensRequestScopedStoredCredential(t *testing.T) {
 	binding, provider := testBinder(t)
 	store := fakeManagedStore{}
-	principal := identity.Principal{TenantID: "tenant", ClientID: "client"}
+	principal := identity.Principal{ClientID: "client", UserID: "user"}
 	routes := routing.NewSessionCatalog(routing.SourceFunc(store.ProviderOptions))
 	if _, err := routes.Refresh(context.Background(), principal, routing.OptionsRequest{}); err != nil {
 		t.Fatal(err)

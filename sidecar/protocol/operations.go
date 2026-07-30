@@ -53,6 +53,24 @@ type EmbedRequest struct {
 	Dimensions  *int          `json:"dimensions,omitempty"`
 }
 
+type RerankRequest struct {
+	OperationID string        `json:"operation_id,omitempty"`
+	TargetID    string        `json:"target_id,omitempty"`
+	Target      llmkit.Target `json:"target"`
+	Credential  Credential    `json:"credential"`
+	Query       string        `json:"query"`
+	Documents   []string      `json:"documents"`
+	TopN        *int          `json:"top_n,omitempty"`
+}
+
+type ModerateRequest struct {
+	OperationID string               `json:"operation_id,omitempty"`
+	TargetID    string               `json:"target_id,omitempty"`
+	Target      llmkit.Target        `json:"target"`
+	Credential  Credential           `json:"credential"`
+	Content     []llmkit.ContentPart `json:"content"`
+}
+
 type ResolveProviderOptionsRequest = routing.OptionsRequest
 type ResolveProviderOptionsResponse = routing.OptionsResponse
 
