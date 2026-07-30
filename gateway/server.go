@@ -56,13 +56,13 @@ func New(config Config) (*Server, error) {
 	data.Handle("GET /v1/available-targets", server.authenticate(http.HandlerFunc(server.providerOptions)))
 	data.Handle("GET /v1/provider-options", server.authenticate(http.HandlerFunc(server.providerOptions)))
 	data.Handle("GET /v1/models", server.authenticate(http.HandlerFunc(server.openAIModels)))
-	data.Handle("POST /v1/chat/completions", server.authenticate(server.rateLimit(http.HandlerFunc(server.openAIChat))))
-	data.Handle("POST /v1/responses", server.authenticate(server.rateLimit(http.HandlerFunc(server.openAIResponses))))
-	data.Handle("POST /v1/embeddings", server.authenticate(server.rateLimit(http.HandlerFunc(server.openAIEmbeddings))))
-	data.Handle("POST /v1/generate", server.authenticate(server.rateLimit(http.HandlerFunc(server.generate))))
-	data.Handle("POST /v1/embed", server.authenticate(server.rateLimit(http.HandlerFunc(server.embed))))
-	data.Handle("POST /v1/rerank", server.authenticate(server.rateLimit(http.HandlerFunc(server.rerank))))
-	data.Handle("POST /v1/moderate", server.authenticate(server.rateLimit(http.HandlerFunc(server.moderate))))
+	data.Handle("POST /v1/chat/completions", server.authenticate(http.HandlerFunc(server.openAIChat)))
+	data.Handle("POST /v1/responses", server.authenticate(http.HandlerFunc(server.openAIResponses)))
+	data.Handle("POST /v1/embeddings", server.authenticate(http.HandlerFunc(server.openAIEmbeddings)))
+	data.Handle("POST /v1/generate", server.authenticate(http.HandlerFunc(server.generate)))
+	data.Handle("POST /v1/embed", server.authenticate(http.HandlerFunc(server.embed)))
+	data.Handle("POST /v1/rerank", server.authenticate(http.HandlerFunc(server.rerank)))
+	data.Handle("POST /v1/moderate", server.authenticate(http.HandlerFunc(server.moderate)))
 	data.Handle("POST /v1/blobs", server.authenticate(http.HandlerFunc(server.putBlob)))
 	data.Handle("DELETE /v1/blobs/{blob_ref}", server.authenticate(http.HandlerFunc(server.deleteBlob)))
 	data.HandleFunc("POST /v1/tokens/refresh", server.refreshToken)
@@ -152,34 +152,45 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) rateLimit(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		principal, _ := identity.FromContext(request.Context())
-		lease, err := s.config.RateLimitStore.Reserve(request.Context(), managed.RateLimitRequest{
-			ClientID: principal.ClientID, UserID: principal.UserID, Requests: 1, Concurrency: 1,
-		})
-		if err != nil {
-			writeAPIError(writer, http.StatusServiceUnavailable, "coordination_unavailable", "rate limit could not be checked")
-			return
-		}
-		if !lease.Allowed {
-			if lease.RetryAfter > 0 {
-				writer.Header().Set("Retry-After", fmt.Sprintf("%.0f", lease.RetryAfter.Seconds()))
-			}
-			writeAPIError(writer, http.StatusTooManyRequests, string(llmkit.ErrorRateLimited), "rate limit exceeded")
-			return
-		}
-		committed := false
-		defer func() {
-			if !committed {
-				_ = s.config.RateLimitStore.Release(context.WithoutCancel(request.Context()), lease.LeaseID)
-			}
-		}()
-		next.ServeHTTP(writer, request)
-		if err := s.config.RateLimitStore.Commit(context.WithoutCancel(request.Context()), lease.LeaseID, managed.RateLimitUsage{Requests: 1}); err == nil {
-			committed = true
-		}
+type inferenceCharge struct {
+	store   managed.RateLimitStore
+	leaseID string
+	usage   managed.RateLimitUsage
+}
+
+func (s *Server) reserveInference(writer http.ResponseWriter, request *http.Request, principal identity.Principal, target managed.Target) *inferenceCharge {
+	providerAccount := target.ProviderAccount
+	if providerAccount == "" {
+		providerAccount = string(target.Target.Provider)
+	}
+	lease, err := s.config.RateLimitStore.Reserve(request.Context(), managed.RateLimitRequest{
+		ClientID: principal.ClientID, UserID: principal.UserID, TargetID: target.ID, ProviderAccount: providerAccount,
+		Requests: 1, Concurrency: 1,
 	})
+	if err != nil {
+		writeAPIError(writer, http.StatusServiceUnavailable, "coordination_unavailable", "rate limit could not be checked")
+		return nil
+	}
+	if !lease.Allowed {
+		if lease.RetryAfter > 0 {
+			writer.Header().Set("Retry-After", fmt.Sprintf("%.0f", lease.RetryAfter.Seconds()))
+		}
+		writeAPIError(writer, http.StatusTooManyRequests, string(llmkit.ErrorRateLimited), "rate limit exceeded")
+		return nil
+	}
+	return &inferenceCharge{store: s.config.RateLimitStore, leaseID: lease.LeaseID, usage: managed.RateLimitUsage{Requests: 1}}
+}
+
+func (c *inferenceCharge) observe(usage llmkit.Usage) {
+	c.usage.InputTokens = usage.InputTokens
+	c.usage.OutputTokens = usage.OutputTokens
+}
+
+func (c *inferenceCharge) finish(ctx context.Context) {
+	ctx = context.WithoutCancel(ctx)
+	if err := c.store.Commit(ctx, c.leaseID, c.usage); err != nil {
+		_ = c.store.Release(ctx, c.leaseID)
+	}
 }
 
 func (s *Server) providerOptions(writer http.ResponseWriter, request *http.Request) {
@@ -235,16 +246,27 @@ func (s *Server) generate(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	principal, _ := identity.FromContext(request.Context())
-	target, credential, release, err := s.resolveCredential(request.Context(), principal, input.TargetID)
+	target, err := s.resolveTarget(request.Context(), principal, input.TargetID)
 	if err != nil {
 		s.audit(request.Context(), principal, "generate", input.OperationID, input.TargetID, llmkit.Usage{}, err)
+		writeError(writer, err)
+		return
+	}
+	charge := s.reserveInference(writer, request, principal, target)
+	if charge == nil {
+		return
+	}
+	defer charge.finish(request.Context())
+	credential, release, err := s.openCredential(request.Context(), principal, target.CredentialRef)
+	if err != nil {
+		s.audit(request.Context(), principal, "generate", input.OperationID, target.ID, llmkit.Usage{}, err)
 		writeError(writer, err)
 		return
 	}
 	defer release()
 	call := llmkit.GenerateCall{OperationID: input.OperationID, Target: target.Target, Credential: credential, Request: input.Request}
 	if input.Stream {
-		s.streamGenerate(writer, request, principal, target, call)
+		s.streamGenerate(writer, request, principal, target, call, charge)
 		return
 	}
 	generator, ok := s.config.Registry.Generator(target.Target.Provider)
@@ -253,6 +275,7 @@ func (s *Server) generate(writer http.ResponseWriter, request *http.Request) {
 	} else {
 		var response llmkit.Response
 		response, err = generator.Generate(request.Context(), call)
+		charge.observe(response.Usage)
 		if err == nil {
 			s.audit(request.Context(), principal, "generate", input.OperationID, target.ID, response.Usage, nil)
 			writeJSON(writer, http.StatusOK, map[string]any{"target_id": target.ID, "target": target.Target, "response": response})
@@ -263,7 +286,7 @@ func (s *Server) generate(writer http.ResponseWriter, request *http.Request) {
 	writeError(writer, err)
 }
 
-func (s *Server) streamGenerate(writer http.ResponseWriter, request *http.Request, principal identity.Principal, target managed.Target, call llmkit.GenerateCall) {
+func (s *Server) streamGenerate(writer http.ResponseWriter, request *http.Request, principal identity.Principal, target managed.Target, call llmkit.GenerateCall, charge *inferenceCharge) {
 	generator, ok := s.config.Registry.StreamGenerator(target.Target.Provider)
 	if !ok {
 		writeError(writer, providerError(target.Target, llmkit.ErrorUnsupported, "provider does not support streaming"))
@@ -293,11 +316,12 @@ func (s *Server) streamGenerate(writer http.ResponseWriter, request *http.Reques
 		event, receiveErr := stream.Recv()
 		if receiveErr == io.EOF {
 			if !normalizer.Terminal() {
-				failed := normalizer.Fail(&llmkit.ProviderError{Kind: llmkit.ErrorProtocol, SafeMessage: "provider stream ended without a terminal event"})
+				receiveErr = &llmkit.ProviderError{Provider: target.Target.Provider, Model: target.Target.Model, Kind: llmkit.ErrorProtocol, Phase: llmkit.PhaseStream, SafeMessage: "provider stream ended without a terminal event"}
+				failed := normalizer.Fail(receiveErr)
 				writeSSE(writer, string(failed.Type), failed)
 			}
 			flusher.Flush()
-			s.audit(request.Context(), principal, "generate_stream", call.OperationID, target.ID, usage, nil)
+			s.audit(request.Context(), principal, "generate_stream", call.OperationID, target.ID, usage, receiveErr)
 			return
 		}
 		if receiveErr != nil {
@@ -309,6 +333,7 @@ func (s *Server) streamGenerate(writer http.ResponseWriter, request *http.Reques
 		}
 		if event.Usage != nil {
 			usage = *event.Usage
+			charge.observe(usage)
 		}
 		normalized, normalizeErr := normalizer.Accept(event)
 		if normalizeErr != nil {
@@ -320,6 +345,14 @@ func (s *Server) streamGenerate(writer http.ResponseWriter, request *http.Reques
 		}
 		writeSSE(writer, string(normalized.Type), normalized)
 		flusher.Flush()
+		if normalizer.Terminal() {
+			var terminalErr error
+			if normalized.Type == llmkit.EventResponseFailed || normalized.Type == llmkit.EventResponseCancelled {
+				terminalErr = terminalStreamError(target.Target, normalized)
+			}
+			s.audit(request.Context(), principal, "generate_stream", call.OperationID, target.ID, usage, terminalErr)
+			return
+		}
 	}
 }
 
@@ -339,7 +372,17 @@ func (s *Server) embed(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	principal, _ := identity.FromContext(request.Context())
-	target, credential, release, err := s.resolveCredential(request.Context(), principal, input.TargetID)
+	target, err := s.resolveTarget(request.Context(), principal, input.TargetID)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	charge := s.reserveInference(writer, request, principal, target)
+	if charge == nil {
+		return
+	}
+	defer charge.finish(request.Context())
+	credential, release, err := s.openCredential(request.Context(), principal, target.CredentialRef)
 	if err != nil {
 		writeError(writer, err)
 		return
@@ -351,6 +394,7 @@ func (s *Server) embed(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	response, err := embedder.Embed(request.Context(), llmkit.EmbedCall{OperationID: input.OperationID, Target: target.Target, Credential: credential, Input: input.Input, Dimensions: input.Dimensions})
+	charge.observe(response.Usage)
 	s.audit(request.Context(), principal, "embed", input.OperationID, target.ID, response.Usage, err)
 	if err != nil {
 		writeError(writer, err)
@@ -376,7 +420,17 @@ func (s *Server) rerank(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	principal, _ := identity.FromContext(request.Context())
-	target, credential, release, err := s.resolveCredential(request.Context(), principal, input.TargetID)
+	target, err := s.resolveTarget(request.Context(), principal, input.TargetID)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	charge := s.reserveInference(writer, request, principal, target)
+	if charge == nil {
+		return
+	}
+	defer charge.finish(request.Context())
+	credential, release, err := s.openCredential(request.Context(), principal, target.CredentialRef)
 	if err != nil {
 		writeError(writer, err)
 		return
@@ -388,6 +442,7 @@ func (s *Server) rerank(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	response, err := reranker.Rerank(request.Context(), llmkit.RerankCall{OperationID: input.OperationID, Target: target.Target, Credential: credential, Query: input.Query, Documents: input.Documents, TopN: input.TopN})
+	charge.observe(response.Usage)
 	s.audit(request.Context(), principal, "rerank", input.OperationID, target.ID, response.Usage, err)
 	if err != nil {
 		writeError(writer, err)
@@ -411,7 +466,17 @@ func (s *Server) moderate(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	principal, _ := identity.FromContext(request.Context())
-	target, credential, release, err := s.resolveCredential(request.Context(), principal, input.TargetID)
+	target, err := s.resolveTarget(request.Context(), principal, input.TargetID)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	charge := s.reserveInference(writer, request, principal, target)
+	if charge == nil {
+		return
+	}
+	defer charge.finish(request.Context())
+	credential, release, err := s.openCredential(request.Context(), principal, target.CredentialRef)
 	if err != nil {
 		writeError(writer, err)
 		return
@@ -423,6 +488,7 @@ func (s *Server) moderate(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	response, err := moderator.Moderate(request.Context(), llmkit.ModerateCall{OperationID: input.OperationID, Target: target.Target, Credential: credential, Content: input.Content})
+	charge.observe(response.Usage)
 	s.audit(request.Context(), principal, "moderate", input.OperationID, target.ID, response.Usage, err)
 	if err != nil {
 		writeError(writer, err)
@@ -431,36 +497,44 @@ func (s *Server) moderate(writer http.ResponseWriter, request *http.Request) {
 	writeJSON(writer, http.StatusOK, map[string]any{"target_id": target.ID, "response": response})
 }
 
-func (s *Server) resolveCredential(ctx context.Context, principal identity.Principal, targetID string) (managed.Target, llmkit.CredentialHandle, func(), error) {
+func (s *Server) resolveTarget(ctx context.Context, principal identity.Principal, targetID string) (managed.Target, error) {
 	if targetID == "llmkit-default" {
 		targetID = ""
 	}
 	target, err := s.config.ConfigStore.ResolveTarget(ctx, principal, targetID)
 	if err != nil {
-		return managed.Target{}, nil, func() {}, err
+		return managed.Target{}, err
 	}
 	if target.ID == "" || target.Target.Provider == "" || target.Target.Model == "" || target.CredentialRef == "" {
-		return managed.Target{}, nil, func() {}, &llmkit.ProviderError{Kind: llmkit.ErrorInvalidRequest, SafeMessage: "resolved target is incomplete"}
+		return managed.Target{}, &llmkit.ProviderError{Kind: llmkit.ErrorInvalidRequest, SafeMessage: "resolved target is incomplete"}
 	}
 	if targetID != "" && target.ID != targetID {
-		return managed.Target{}, nil, func() {}, &llmkit.ProviderError{Kind: llmkit.ErrorPermission, SafeMessage: "resolved target does not match requested target_id"}
+		return managed.Target{}, &llmkit.ProviderError{Kind: llmkit.ErrorPermission, SafeMessage: "resolved target does not match requested target_id"}
 	}
 	if target.Target.Endpoint != "" {
 		if s.config.EndpointPolicy == nil {
-			return managed.Target{}, nil, func() {}, providerError(target.Target, llmkit.ErrorPermission, "custom endpoint is not permitted")
+			return managed.Target{}, providerError(target.Target, llmkit.ErrorPermission, "custom endpoint is not permitted")
 		}
 		if err := s.config.EndpointPolicy(target.Target); err != nil {
-			return managed.Target{}, nil, func() {}, err
+			return managed.Target{}, err
 		}
 	}
-	handle, release, err := s.config.SecretStore.OpenCredential(ctx, principal, target.CredentialRef)
+	return target, nil
+}
+
+func (s *Server) openCredential(ctx context.Context, principal identity.Principal, credentialRef string) (llmkit.CredentialHandle, func(), error) {
+	handle, release, err := s.config.SecretStore.OpenCredential(ctx, principal, credentialRef)
 	if release == nil {
 		release = func() {}
 	}
 	if err == nil && handle == nil {
 		err = errors.New("gateway: secret store returned an empty credential handle")
 	}
-	return target, handle, release, err
+	if err != nil {
+		release()
+		return nil, func() {}, err
+	}
+	return handle, release, err
 }
 
 func (s *Server) upsertCustomProvider(writer http.ResponseWriter, request *http.Request) {

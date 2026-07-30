@@ -69,24 +69,34 @@ type TokenPair struct {
 	FamilyExpiresAt time.Time `json:"family_expires_at"`
 }
 
+// PepperKey identifies one HMAC pepper generation. Versions are persisted
+// alongside token records so a host can retain the previous key while tokens
+// minted before a rotation naturally expire.
+type PepperKey struct {
+	Version string
+	Key     []byte
+}
+
 type TokenManagerConfig struct {
-	Mode           TokenMode
-	Pepper         []byte
-	AccessTTL      time.Duration
-	FamilyTTL      time.Duration
-	IdempotencyTTL time.Duration
-	Now            func() time.Time
+	Mode                 TokenMode
+	Pepper               []byte
+	CurrentPepperVersion string
+	PreviousPeppers      []PepperKey
+	AccessTTL            time.Duration
+	FamilyTTL            time.Duration
+	IdempotencyTTL       time.Duration
+	Now                  func() time.Time
 }
 
 type tokenRecord struct {
-	id, secretMAC, familyID string
-	generation              uint64
-	principal               Principal
-	expiresAt               time.Time
-	used                    bool
-	idempotencyKey          string
-	cached                  []byte
-	cacheExpiresAt          time.Time
+	id, secretMAC, familyID, pepperVersion string
+	generation                             uint64
+	principal                              Principal
+	expiresAt                              time.Time
+	used                                   bool
+	idempotencyKey                         string
+	cached                                 []byte
+	cacheExpiresAt                         time.Time
 }
 
 type familyRecord struct {
@@ -110,7 +120,8 @@ type encryptedRecovery struct {
 // SessionStore and keep the pepper in KMS/HSM/SecretStore.
 type TokenManager struct {
 	mode                                 TokenMode
-	pepper                               []byte
+	currentPepperVersion                 string
+	peppers                              map[string][]byte
 	accessTTL, familyTTL, idempotencyTTL time.Duration
 	now                                  func() time.Time
 	aead                                 cipher.AEAD
@@ -123,6 +134,13 @@ type TokenManager struct {
 func NewTokenManager(config TokenManagerConfig) (*TokenManager, error) {
 	if AccessPrefix(config.Mode) == "" || len(config.Pepper) < 32 || config.AccessTTL <= 0 || config.FamilyTTL <= 0 {
 		return nil, errors.New("identity: valid mode, 32-byte pepper, and positive token TTLs are required")
+	}
+	if config.CurrentPepperVersion == "" {
+		config.CurrentPepperVersion = "v1"
+	}
+	peppers, err := buildPepperRing(PepperKey{Version: config.CurrentPepperVersion, Key: config.Pepper}, config.PreviousPeppers)
+	if err != nil {
+		return nil, err
 	}
 	if config.IdempotencyTTL <= 0 {
 		config.IdempotencyTTL = time.Minute
@@ -139,9 +157,27 @@ func NewTokenManager(config TokenManagerConfig) (*TokenManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &TokenManager{mode: config.Mode, pepper: append([]byte(nil), config.Pepper...), accessTTL: config.AccessTTL,
+	return &TokenManager{mode: config.Mode, currentPepperVersion: config.CurrentPepperVersion, peppers: peppers, accessTTL: config.AccessTTL,
 		familyTTL: config.FamilyTTL, idempotencyTTL: config.IdempotencyTTL, now: config.Now, aead: aead,
 		access: make(map[string]*tokenRecord), refresh: make(map[string]*tokenRecord), families: make(map[string]*familyRecord), bindingRecovery: make(map[string]encryptedRecovery)}, nil
+}
+
+// RotatePepper atomically changes the key used for newly issued token MACs.
+// Pass the prior key in previous while any token minted with it may still be
+// valid. Removing a version immediately invalidates records tied to that key.
+func (m *TokenManager) RotatePepper(current PepperKey, previous ...PepperKey) error {
+	peppers, err := buildPepperRing(current, previous)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	old := m.peppers
+	m.currentPepperVersion, m.peppers = current.Version, peppers
+	for _, key := range old {
+		clear(key)
+	}
+	return nil
 }
 
 func (m *TokenManager) Issue(principal Principal) (TokenPair, error) {
@@ -295,9 +331,20 @@ func (m *TokenManager) RememberBindingResult(clientID string, expected uint64, i
 func (m *TokenManager) RecoverBindingResult(clientID string, expected uint64, idempotencyKey string) (BindingResult, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	key := m.bindingRecoveryKey(clientID, expected, idempotencyKey)
-	cached, ok := m.bindingRecovery[key]
-	if !ok || !m.now().Before(cached.expiresAt) || len(cached.value) < m.aead.NonceSize() {
+	var key string
+	var cached encryptedRecovery
+	var ok bool
+	for _, pepper := range m.peppers {
+		key = bindingRecoveryKey(pepper, clientID, expected, idempotencyKey)
+		cached, ok = m.bindingRecovery[key]
+		if ok {
+			break
+		}
+	}
+	if !ok {
+		return BindingResult{}, false
+	}
+	if !m.now().Before(cached.expiresAt) || len(cached.value) < m.aead.NonceSize() {
 		delete(m.bindingRecovery, key)
 		return BindingResult{}, false
 	}
@@ -314,9 +361,13 @@ func (m *TokenManager) RecoverBindingResult(clientID string, expected uint64, id
 }
 
 func (m *TokenManager) bindingRecoveryKey(clientID string, expected uint64, idempotencyKey string) string {
+	return bindingRecoveryKey(m.peppers[m.currentPepperVersion], clientID, expected, idempotencyKey)
+}
+
+func bindingRecoveryKey(pepper []byte, clientID string, expected uint64, idempotencyKey string) string {
 	data := []byte(clientID + "\x00" + idempotencyKey + "\x00" + strconv.FormatUint(expected, 10))
 	defer clear(data)
-	return base64.RawURLEncoding.EncodeToString(hmacDigest(m.pepper, data))
+	return base64.RawURLEncoding.EncodeToString(hmacDigest(pepper, data))
 }
 
 func (m *TokenManager) issueLocked(principal Principal, familyID string, generation uint64, now time.Time) (TokenPair, error) {
@@ -333,19 +384,38 @@ func (m *TokenManager) issueLocked(principal Principal, familyID string, generat
 	if accessExpiry.After(family.expiresAt) {
 		accessExpiry = family.expiresAt
 	}
-	m.access[accessID] = &tokenRecord{id: accessID, secretMAC: m.mac(accessSecret), familyID: familyID, generation: generation, principal: clonePrincipal(principal), expiresAt: accessExpiry}
+	m.access[accessID] = &tokenRecord{id: accessID, secretMAC: m.mac(m.currentPepperVersion, accessSecret), familyID: familyID, pepperVersion: m.currentPepperVersion, generation: generation, principal: clonePrincipal(principal), expiresAt: accessExpiry}
 	// Refresh expires with the access token by confirmed contract.
-	m.refresh[refreshID] = &tokenRecord{id: refreshID, secretMAC: m.mac(refreshSecret), familyID: familyID, generation: generation, principal: clonePrincipal(principal), expiresAt: accessExpiry}
+	m.refresh[refreshID] = &tokenRecord{id: refreshID, secretMAC: m.mac(m.currentPepperVersion, refreshSecret), familyID: familyID, pepperVersion: m.currentPepperVersion, generation: generation, principal: clonePrincipal(principal), expiresAt: accessExpiry}
 	return TokenPair{AccessToken: AccessPrefix(m.mode) + accessID + "." + accessSecret, RefreshToken: RefreshPrefix(m.mode) + refreshID + "." + refreshSecret, AccessExpiresAt: accessExpiry, FamilyExpiresAt: family.expiresAt}, nil
 }
 
 func (m *TokenManager) validSecret(record *tokenRecord, secret string) bool {
-	want, got := []byte(record.secretMAC), []byte(m.mac(secret))
+	pepper := m.peppers[record.pepperVersion]
+	if len(pepper) == 0 {
+		return false
+	}
+	want, got := []byte(record.secretMAC), []byte(m.mac(record.pepperVersion, secret))
 	return len(want) == len(got) && subtle.ConstantTimeCompare(want, got) == 1
 }
 
-func (m *TokenManager) mac(secret string) string {
-	return base64.RawURLEncoding.EncodeToString(hmacDigest(m.pepper, []byte(secret)))
+func (m *TokenManager) mac(version, secret string) string {
+	return base64.RawURLEncoding.EncodeToString(hmacDigest(m.peppers[version], []byte(secret)))
+}
+
+func buildPepperRing(current PepperKey, previous []PepperKey) (map[string][]byte, error) {
+	keys := append([]PepperKey{current}, previous...)
+	ring := make(map[string][]byte, len(keys))
+	for _, pepper := range keys {
+		if strings.TrimSpace(pepper.Version) == "" || len(pepper.Key) < 32 {
+			return nil, errors.New("identity: pepper versions must be named and contain at least 32 bytes")
+		}
+		if _, exists := ring[pepper.Version]; exists {
+			return nil, errors.New("identity: pepper versions must be unique")
+		}
+		ring[pepper.Version] = append([]byte(nil), pepper.Key...)
+	}
+	return ring, nil
 }
 func (m *TokenManager) revokeFamilyLocked(id string) {
 	if f := m.families[id]; f != nil {

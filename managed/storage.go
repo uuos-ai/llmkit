@@ -18,6 +18,9 @@ type Target struct {
 	OwnerScope     routing.OwnerScope     `json:"owner_scope,omitempty"`
 	CredentialMode routing.CredentialMode `json:"credential_mode,omitempty"`
 	CredentialRef  string                 `json:"credential_ref"`
+	// ProviderAccount is an opaque business-platform quota dimension. It is
+	// never returned by llmkit inference APIs; Provider is used when omitted.
+	ProviderAccount string `json:"provider_account,omitempty"`
 }
 
 type ConfigStore interface {

@@ -46,7 +46,7 @@ target 显式绑定 credential mode，不跨 business/client/user scope 回退�
 
 数据面包含目标读取、推理、流、blob 与 token refresh。控制面包含 client/enrollment、Provider/凭据写入、runtime policy 与审计。生产 gateway 使用必填且不同的 `listen` / `admin_listen`；local-service 使用独立 admin IPC；sidecar 即使共用 pipe 也使用独立 namespace 与 scopes。
 
-gateway 的 `storage.coordination_store`（或 `LLMKIT_COORDINATION_STORE` / `--coordination-store`）提供强一致的 SessionStore、UserBindingStore、RateLimitStore 与 IdentityService HTTP 合同。每次认证都校验当前 binding；推理前获取跨副本限流 lease，结束后提交或释放。所有业务 store 请求同时携带 mTLS client certificate 与 `business_service_token_file` 中的短期 bearer token。
+gateway 的 `storage.coordination_store`（或 `LLMKIT_COORDINATION_STORE` / `--coordination-store`）提供强一致的 SessionStore、UserBindingStore、RateLimitStore 与 IdentityService HTTP 合同。每次认证都校验当前 binding；目标解析后按 client/user/target/provider-account 四层获取跨副本限流 lease，结束后提交请求数及 Provider 报告的 input/output token usage，提交失败则释放 lease。`provider_account` 是业务 ConfigStore 返回的非秘密、稳定配额键；未提供时 llmkit 使用 Provider ID。所有业务 store 请求同时携带 mTLS client certificate 与 `business_service_token_file` 中的短期 bearer token。
 
 ## 持久化
 

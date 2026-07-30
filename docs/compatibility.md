@@ -71,3 +71,16 @@ release artifacts move to the three-mode `llmkitd` binary before v1.0.
   compatibility names remain available, but serialized clients must migrate.
 - Public streams use `response.*`, `content.*`, `tool_call.*` and `usage.updated`
   events with sequence numbers and a unique terminal state.
+
+## Unreleased additive hardening APIs
+
+- `identity.TokenManagerConfig` accepts `CurrentPepperVersion` and
+  `PreviousPeppers`; `TokenManager.RotatePepper` atomically changes the current
+  HMAC key. Existing tokens remain valid only while their recorded pepper
+  version stays in the retained key ring.
+- `managed.Target.ProviderAccount` is an optional, opaque quota dimension. The
+  gateway falls back to the Provider ID when the business ConfigStore omits it.
+- Gateway inference leases now include `client_id`, `user_id`, `target_id`, and
+  `provider_account`, then commit reported input/output token usage. A stream
+  that reaches EOF without a normalized terminal event is accounted and
+  audited as `protocol_error`, never as successful completion.

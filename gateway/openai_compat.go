@@ -70,7 +70,17 @@ func (s *Server) openAIChat(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	principal, _ := identity.FromContext(request.Context())
-	target, credential, release, err := s.resolveCredential(request.Context(), principal, input.Model)
+	target, err := s.resolveTarget(request.Context(), principal, input.Model)
+	if err != nil {
+		writeOpenAIProviderError(writer, err)
+		return
+	}
+	charge := s.reserveInference(writer, request, principal, target)
+	if charge == nil {
+		return
+	}
+	defer charge.finish(request.Context())
+	credential, release, err := s.openCredential(request.Context(), principal, target.CredentialRef)
 	if err != nil {
 		writeOpenAIProviderError(writer, err)
 		return
@@ -79,7 +89,7 @@ func (s *Server) openAIChat(writer http.ResponseWriter, request *http.Request) {
 	operationID := operationID(request)
 	call := llmkit.GenerateCall{OperationID: operationID, Target: target.Target, Credential: credential, Request: generate}
 	if input.Stream {
-		s.openAIChatStream(writer, request, principal, target.ID, call)
+		s.openAIChatStream(writer, request, principal, target.ID, call, charge)
 		return
 	}
 	generator, ok := s.config.Registry.Generator(target.Target.Provider)
@@ -88,6 +98,7 @@ func (s *Server) openAIChat(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	response, err := generator.Generate(request.Context(), call)
+	charge.observe(response.Usage)
 	s.audit(request.Context(), principal, "openai.chat.completions", operationID, target.ID, response.Usage, err)
 	if err != nil {
 		writeOpenAIProviderError(writer, err)
@@ -224,7 +235,7 @@ func chatCompletion(model, id string, response llmkit.Response) map[string]any {
 	}
 }
 
-func (s *Server) openAIChatStream(writer http.ResponseWriter, request *http.Request, principal identity.Principal, model string, call llmkit.GenerateCall) {
+func (s *Server) openAIChatStream(writer http.ResponseWriter, request *http.Request, principal identity.Principal, model string, call llmkit.GenerateCall, charge *inferenceCharge) {
 	generator, ok := s.config.Registry.StreamGenerator(call.Target.Provider)
 	if !ok {
 		writeOpenAIError(writer, http.StatusBadRequest, "invalid_request_error", "selected model does not support streaming")
@@ -250,9 +261,10 @@ func (s *Server) openAIChatStream(writer http.ResponseWriter, request *http.Requ
 	for {
 		event, receiveErr := stream.Recv()
 		if receiveErr == io.EOF {
-			writeOpenAIData(writer, "[DONE]")
+			receiveErr = truncatedStreamError(call.Target, "provider stream ended before a terminal event")
+			writeOpenAIStreamError(writer, receiveErr)
 			flusher.Flush()
-			s.audit(request.Context(), principal, "openai.chat.completions.stream", call.OperationID, model, usage, nil)
+			s.audit(request.Context(), principal, "openai.chat.completions.stream", call.OperationID, model, usage, receiveErr)
 			return
 		}
 		if receiveErr != nil {
@@ -263,6 +275,7 @@ func (s *Server) openAIChatStream(writer http.ResponseWriter, request *http.Requ
 		}
 		if event.Usage != nil {
 			usage = *event.Usage
+			charge.observe(usage)
 		}
 		delta := map[string]any{}
 		if event.Text != "" {
@@ -279,13 +292,30 @@ func (s *Server) openAIChatStream(writer http.ResponseWriter, request *http.Requ
 			}
 			delta["tool_calls"] = []any{callDelta}
 		}
+		if event.Type == llmkit.EventResponseFailed || event.Type == llmkit.EventResponseCancelled {
+			receiveErr = terminalStreamError(call.Target, event)
+			writeOpenAIStreamError(writer, receiveErr)
+			flusher.Flush()
+			s.audit(request.Context(), principal, "openai.chat.completions.stream", call.OperationID, model, usage, receiveErr)
+			return
+		}
+		terminal := event.Type == llmkit.EventFinish || event.Type == llmkit.EventResponseCompleted
 		finish := any(nil)
-		if event.Type == llmkit.EventFinish || event.Type == llmkit.EventResponseCompleted {
+		if terminal {
 			finish = event.FinishReason
+			if event.FinishReason == "" {
+				finish = llmkit.FinishUnknown
+			}
 		}
 		if len(delta) != 0 || finish != nil {
 			writeOpenAIData(writer, map[string]any{"id": call.OperationID, "object": "chat.completion.chunk", "created": created, "model": model, "choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": finish}}})
 			flusher.Flush()
+		}
+		if terminal {
+			writeOpenAIData(writer, "[DONE]")
+			flusher.Flush()
+			s.audit(request.Context(), principal, "openai.chat.completions.stream", call.OperationID, model, usage, nil)
+			return
 		}
 	}
 }
@@ -311,7 +341,17 @@ func (s *Server) openAIResponses(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	principal, _ := identity.FromContext(request.Context())
-	target, credential, release, err := s.resolveCredential(request.Context(), principal, input.Model)
+	target, err := s.resolveTarget(request.Context(), principal, input.Model)
+	if err != nil {
+		writeOpenAIProviderError(writer, err)
+		return
+	}
+	charge := s.reserveInference(writer, request, principal, target)
+	if charge == nil {
+		return
+	}
+	defer charge.finish(request.Context())
+	credential, release, err := s.openCredential(request.Context(), principal, target.CredentialRef)
 	if err != nil {
 		writeOpenAIProviderError(writer, err)
 		return
@@ -320,7 +360,7 @@ func (s *Server) openAIResponses(writer http.ResponseWriter, request *http.Reque
 	id := operationID(request)
 	generateRequest := llmkit.GenerateRequest{Messages: messages, Temperature: input.Temperature, TopP: input.TopP, MaxOutputTokens: input.MaxTokens}
 	if input.Stream {
-		s.openAIResponsesStream(writer, request, principal, target.ID, llmkit.GenerateCall{OperationID: id, Target: target.Target, Credential: credential, Request: generateRequest})
+		s.openAIResponsesStream(writer, request, principal, target.ID, llmkit.GenerateCall{OperationID: id, Target: target.Target, Credential: credential, Request: generateRequest}, charge)
 		return
 	}
 	generator, ok := s.config.Registry.Generator(target.Target.Provider)
@@ -329,6 +369,7 @@ func (s *Server) openAIResponses(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	response, err := generator.Generate(request.Context(), llmkit.GenerateCall{OperationID: id, Target: target.Target, Credential: credential, Request: generateRequest})
+	charge.observe(response.Usage)
 	s.audit(request.Context(), principal, "openai.responses", id, target.ID, response.Usage, err)
 	if err != nil {
 		writeOpenAIProviderError(writer, err)
@@ -337,7 +378,7 @@ func (s *Server) openAIResponses(writer http.ResponseWriter, request *http.Reque
 	writeJSON(writer, http.StatusOK, map[string]any{"id": id, "object": "response", "created_at": time.Now().Unix(), "status": "completed", "model": target.ID, "output": []any{map[string]any{"type": "message", "id": id + "-message", "role": "assistant", "status": "completed", "content": []any{map[string]any{"type": "output_text", "text": responseText(response.Message), "annotations": []any{}}}}}, "usage": map[string]any{"input_tokens": response.Usage.InputTokens, "output_tokens": response.Usage.OutputTokens, "total_tokens": response.Usage.TotalTokens}})
 }
 
-func (s *Server) openAIResponsesStream(writer http.ResponseWriter, request *http.Request, principal identity.Principal, model string, call llmkit.GenerateCall) {
+func (s *Server) openAIResponsesStream(writer http.ResponseWriter, request *http.Request, principal identity.Principal, model string, call llmkit.GenerateCall, charge *inferenceCharge) {
 	generator, ok := s.config.Registry.StreamGenerator(call.Target.Provider)
 	if !ok {
 		writeOpenAIError(writer, http.StatusBadRequest, "invalid_request_error", "selected model does not support streaming")
@@ -370,12 +411,10 @@ func (s *Server) openAIResponsesStream(writer http.ResponseWriter, request *http
 	for {
 		event, receiveErr := stream.Recv()
 		if receiveErr == io.EOF {
-			responseObject["status"] = "completed"
-			responseObject["usage"] = map[string]any{"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens, "total_tokens": usage.TotalTokens}
-			writeEvent("response.completed", map[string]any{"response": responseObject})
-			writeOpenAIData(writer, "[DONE]")
-			flusher.Flush()
-			s.audit(request.Context(), principal, "openai.responses.stream", call.OperationID, model, usage, nil)
+			receiveErr = truncatedStreamError(call.Target, "provider stream ended before a terminal event")
+			normalized := normalizedError(receiveErr)
+			writeEvent("response.failed", map[string]any{"response": map[string]any{"id": call.OperationID, "status": "failed", "error": map[string]any{"code": normalized.Kind, "message": normalized.Message}}})
+			s.audit(request.Context(), principal, "openai.responses.stream", call.OperationID, model, usage, receiveErr)
 			return
 		}
 		if receiveErr != nil {
@@ -386,6 +425,7 @@ func (s *Server) openAIResponsesStream(writer http.ResponseWriter, request *http
 		}
 		if event.Usage != nil {
 			usage = *event.Usage
+			charge.observe(usage)
 		}
 		if event.Text != "" {
 			writeEvent("response.output_text.delta", map[string]any{"item_id": call.OperationID + "-message", "output_index": event.Index, "content_index": 0, "delta": event.Text})
@@ -393,7 +433,37 @@ func (s *Server) openAIResponsesStream(writer http.ResponseWriter, request *http
 		if len(event.ArgumentsDelta) != 0 {
 			writeEvent("response.function_call_arguments.delta", map[string]any{"item_id": call.OperationID + "-tool", "output_index": event.Index, "delta": string(event.ArgumentsDelta)})
 		}
+		switch event.Type {
+		case llmkit.EventFinish, llmkit.EventResponseCompleted:
+			responseObject["status"] = "completed"
+			responseObject["usage"] = map[string]any{"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens, "total_tokens": usage.TotalTokens}
+			writeEvent("response.completed", map[string]any{"response": responseObject})
+			writeOpenAIData(writer, "[DONE]")
+			flusher.Flush()
+			s.audit(request.Context(), principal, "openai.responses.stream", call.OperationID, model, usage, nil)
+			return
+		case llmkit.EventResponseFailed, llmkit.EventResponseCancelled:
+			receiveErr = terminalStreamError(call.Target, event)
+			normalized := normalizedError(receiveErr)
+			writeEvent("response.failed", map[string]any{"response": map[string]any{"id": call.OperationID, "status": "failed", "error": map[string]any{"code": normalized.Kind, "message": normalized.Message}}})
+			s.audit(request.Context(), principal, "openai.responses.stream", call.OperationID, model, usage, receiveErr)
+			return
+		}
 	}
+}
+
+func truncatedStreamError(target llmkit.Target, message string) error {
+	return &llmkit.ProviderError{Provider: target.Provider, Model: target.Model, Kind: llmkit.ErrorProtocol, Phase: llmkit.PhaseStream, SafeMessage: message}
+}
+
+func terminalStreamError(target llmkit.Target, event llmkit.StreamEvent) error {
+	if event.Error != nil {
+		return &llmkit.ProviderError{Provider: target.Provider, Model: target.Model, Kind: event.Error.Code, Phase: llmkit.PhaseStream, Retryable: event.Error.Retryable, RetryAfter: time.Duration(event.Error.RetryAfterMS) * time.Millisecond, SafeMessage: event.Error.Message}
+	}
+	if event.Type == llmkit.EventResponseCancelled {
+		return &llmkit.ProviderError{Provider: target.Provider, Model: target.Model, Kind: llmkit.ErrorCancelled, Phase: llmkit.PhaseStream, SafeMessage: "provider stream was cancelled"}
+	}
+	return truncatedStreamError(target, "provider stream failed without normalized error details")
 }
 
 func normalizeResponsesInput(raw json.RawMessage, instructions string) ([]llmkit.Message, error) {
@@ -436,7 +506,17 @@ func (s *Server) openAIEmbeddings(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	principal, _ := identity.FromContext(request.Context())
-	target, credential, release, err := s.resolveCredential(request.Context(), principal, input.Model)
+	target, err := s.resolveTarget(request.Context(), principal, input.Model)
+	if err != nil {
+		writeOpenAIProviderError(writer, err)
+		return
+	}
+	charge := s.reserveInference(writer, request, principal, target)
+	if charge == nil {
+		return
+	}
+	defer charge.finish(request.Context())
+	credential, release, err := s.openCredential(request.Context(), principal, target.CredentialRef)
 	if err != nil {
 		writeOpenAIProviderError(writer, err)
 		return
@@ -449,6 +529,7 @@ func (s *Server) openAIEmbeddings(writer http.ResponseWriter, request *http.Requ
 	}
 	id := operationID(request)
 	response, err := embedder.Embed(request.Context(), llmkit.EmbedCall{OperationID: id, Target: target.Target, Credential: credential, Input: values, Dimensions: input.Dimensions})
+	charge.observe(response.Usage)
 	s.audit(request.Context(), principal, "openai.embeddings", id, target.ID, response.Usage, err)
 	if err != nil {
 		writeOpenAIProviderError(writer, err)

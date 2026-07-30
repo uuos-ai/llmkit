@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/uuos-ai/llmkit"
 	"github.com/uuos-ai/llmkit/blobstore"
@@ -16,7 +18,10 @@ import (
 	"github.com/uuos-ai/llmkit/routing"
 )
 
-type testProvider struct{ authorization string }
+type testProvider struct {
+	authorization string
+	streamEvents  []llmkit.StreamEvent
+}
 
 func (*testProvider) ID() llmkit.ProviderID { return "fake" }
 func (*testProvider) Capabilities(context.Context, llmkit.Target) (llmkit.Capabilities, error) {
@@ -38,8 +43,12 @@ func (p *testProvider) Embed(ctx context.Context, call llmkit.EmbedCall) (llmkit
 	p.authorization = request.Header.Get("Authorization")
 	return llmkit.EmbedResponse{Vectors: [][]float32{{1, 2}}, Usage: llmkit.Usage{Source: llmkit.UsageReported, InputTokens: 1, TotalTokens: 1}}, nil
 }
-func (*testProvider) Stream(context.Context, llmkit.GenerateCall) (llmkit.EventStream, error) {
-	return &testEventStream{events: []llmkit.StreamEvent{{Type: llmkit.EventTextDelta, Text: "hello"}, {Type: llmkit.EventFinish, FinishReason: llmkit.FinishStop}}}, nil
+func (p *testProvider) Stream(context.Context, llmkit.GenerateCall) (llmkit.EventStream, error) {
+	events := p.streamEvents
+	if events == nil {
+		events = []llmkit.StreamEvent{{Type: llmkit.EventTextDelta, Text: "hello"}, {Type: llmkit.EventFinish, FinishReason: llmkit.FinishStop}}
+	}
+	return &testEventStream{events: events}, nil
 }
 
 type testEventStream struct {
@@ -58,9 +67,15 @@ func (s *testEventStream) Recv() (llmkit.StreamEvent, error) {
 func (*testEventStream) Close() error { return nil }
 
 type testStores struct {
-	principal identity.Principal
-	audits    []managed.AuditEvent
-	binding   identity.UserBinding
+	principal       identity.Principal
+	audits          []managed.AuditEvent
+	binding         identity.UserBinding
+	rateRequests    []managed.RateLimitRequest
+	rateUsage       []managed.RateLimitUsage
+	denyRate        bool
+	commitFails     bool
+	released        []string
+	credentialOpens int
 }
 
 func (s *testStores) ProviderOptions(_ context.Context, principal identity.Principal) (routing.OptionsResponse, error) {
@@ -72,9 +87,10 @@ func (s *testStores) ResolveTarget(_ context.Context, principal identity.Princip
 	if targetID == "" {
 		targetID = "default"
 	}
-	return managed.Target{ID: targetID, Target: llmkit.Target{Provider: "fake", Model: "model"}, CredentialRef: "vault:one"}, nil
+	return managed.Target{ID: targetID, Target: llmkit.Target{Provider: "fake", Model: "model"}, CredentialRef: "vault:one", ProviderAccount: "account-one"}, nil
 }
-func (*testStores) OpenCredential(context.Context, identity.Principal, string) (llmkit.CredentialHandle, func(), error) {
+func (s *testStores) OpenCredential(context.Context, identity.Principal, string) (llmkit.CredentialHandle, func(), error) {
+	s.credentialOpens++
 	handle := &testCredential{value: []byte("secret")}
 	return handle, func() { clear(handle.value) }, nil
 }
@@ -102,11 +118,21 @@ func (*testStores) ReplaceSession(_ context.Context, session managed.Session, _ 
 	return session, nil
 }
 func (*testStores) RevokeSession(context.Context, string, uint64, string) error { return nil }
-func (*testStores) Reserve(context.Context, managed.RateLimitRequest) (managed.RateLimitLease, error) {
-	return managed.RateLimitLease{LeaseID: "lease", Allowed: true}, nil
+func (s *testStores) Reserve(_ context.Context, request managed.RateLimitRequest) (managed.RateLimitLease, error) {
+	s.rateRequests = append(s.rateRequests, request)
+	return managed.RateLimitLease{LeaseID: fmt.Sprintf("lease-%d", len(s.rateRequests)), Allowed: !s.denyRate, RetryAfter: 2 * time.Second}, nil
 }
-func (*testStores) Commit(context.Context, string, managed.RateLimitUsage) error { return nil }
-func (*testStores) Release(context.Context, string) error                        { return nil }
+func (s *testStores) Commit(_ context.Context, _ string, usage managed.RateLimitUsage) error {
+	s.rateUsage = append(s.rateUsage, usage)
+	if s.commitFails {
+		return fmt.Errorf("synthetic commit failure")
+	}
+	return nil
+}
+func (s *testStores) Release(_ context.Context, leaseID string) error {
+	s.released = append(s.released, leaseID)
+	return nil
+}
 func (*testStores) Authenticate(context.Context, []byte) (identity.Principal, bool) {
 	return identity.Principal{}, false
 }
@@ -158,6 +184,12 @@ func TestGatewayAuthenticatesAndResolvesDefaultAtRequestTime(t *testing.T) {
 	if stores.principal.UserID != "user" || stores.principal.ClientID != "client" || len(stores.audits) != 1 || stores.audits[0].TargetID != "default" {
 		t.Fatalf("principal=%#v audits=%#v", stores.principal, stores.audits)
 	}
+	if len(stores.rateRequests) != 1 || stores.rateRequests[0].TargetID != "default" || stores.rateRequests[0].ProviderAccount != "account-one" || stores.rateRequests[0].ClientID != "client" || stores.rateRequests[0].UserID != "user" {
+		t.Fatalf("rate limit dimensions=%#v", stores.rateRequests)
+	}
+	if len(stores.rateUsage) != 1 || stores.rateUsage[0].Requests != 1 || stores.rateUsage[0].InputTokens != 1 || stores.rateUsage[0].OutputTokens != 2 {
+		t.Fatalf("rate limit usage=%#v", stores.rateUsage)
+	}
 }
 
 func TestGatewayRejectsMissingToken(t *testing.T) {
@@ -170,6 +202,41 @@ func TestGatewayRejectsMissingToken(t *testing.T) {
 	service.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/provider-options", nil))
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d", response.Code)
+	}
+}
+
+func TestGatewayRateLimitDenialAndCommitFailureLifecycle(t *testing.T) {
+	token := []byte("1123456789abcdef0123456789abcdef")
+	auth, _ := identity.SingleToken(token, identity.Principal{ClientID: "client", UserID: "user", BindingVersion: 1, Scopes: map[string]struct{}{identity.ScopeInferenceExecute: {}}})
+	registry := llmkit.NewRegistry()
+	provider := &testProvider{}
+	if err := registry.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	stores := &testStores{binding: identity.UserBinding{ClientID: "client", UserID: "user", BindingVersion: 1}, denyRate: true}
+	service, err := newTestServer(registry, auth, stores)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"request":{"messages":[{"role":"user","parts":[{"type":"text","text":"hi"}]}]}}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/generate", bytes.NewBufferString(body))
+	request.Header.Set("Authorization", "Bearer "+string(token))
+	response := httptest.NewRecorder()
+	service.DataHandler().ServeHTTP(response, request)
+	if response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") != "2" || provider.authorization != "" || stores.credentialOpens != 0 {
+		t.Fatalf("status=%d retry-after=%q provider-auth=%q credential-opens=%d body=%s", response.Code, response.Header().Get("Retry-After"), provider.authorization, stores.credentialOpens, response.Body.String())
+	}
+	if len(stores.rateUsage) != 0 || len(stores.released) != 0 {
+		t.Fatalf("denied lease was settled: usage=%#v released=%#v", stores.rateUsage, stores.released)
+	}
+
+	stores.denyRate, stores.commitFails = false, true
+	request = httptest.NewRequest(http.MethodPost, "/v1/generate", bytes.NewBufferString(body))
+	request.Header.Set("Authorization", "Bearer "+string(token))
+	response = httptest.NewRecorder()
+	service.DataHandler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || len(stores.released) != 1 || stores.released[0] != "lease-2" {
+		t.Fatalf("status=%d released=%#v body=%s", response.Code, stores.released, response.Body.String())
 	}
 }
 
@@ -268,6 +335,39 @@ func TestOpenAIResponsesStreamingCompatibility(t *testing.T) {
 	service.DataHandler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte("response.output_text.delta")) || !bytes.Contains(response.Body.Bytes(), []byte("response.completed")) || !bytes.Contains(response.Body.Bytes(), []byte("[DONE]")) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestOpenAICompatibilityRejectsTruncatedStreams(t *testing.T) {
+	token := []byte("20112233445566778899aabbccddeef0")
+	auth, _ := identity.SingleToken(token, identity.Principal{ClientID: "client", UserID: "user", BindingVersion: 2, Scopes: map[string]struct{}{identity.ScopeInferenceExecute: {}}})
+	registry := llmkit.NewRegistry()
+	provider := &testProvider{streamEvents: []llmkit.StreamEvent{{Type: llmkit.EventTextDelta, Text: "partial"}}}
+	if err := registry.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	stores := &testStores{binding: identity.UserBinding{ClientID: "client", UserID: "user", BindingVersion: 2}}
+	service, err := newTestServer(registry, auth, stores)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		path, body string
+	}{
+		{path: "/v1/chat/completions", body: `{"model":"llmkit-default","messages":[{"role":"user","content":"hi"}],"stream":true}`},
+		{path: "/v1/responses", body: `{"model":"llmkit-default","input":"hi","stream":true}`},
+	} {
+		request := httptest.NewRequest(http.MethodPost, test.path, bytes.NewBufferString(test.body))
+		request.Header.Set("Authorization", "Bearer "+string(token))
+		response := httptest.NewRecorder()
+		service.DataHandler().ServeHTTP(response, request)
+		if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(string(llmkit.ErrorProtocol))) {
+			t.Fatalf("path=%s status=%d body=%s", test.path, response.Code, response.Body.String())
+		}
+		if bytes.Contains(response.Body.Bytes(), []byte("response.completed")) || bytes.Contains(response.Body.Bytes(), []byte("[DONE]")) {
+			t.Fatalf("truncated stream was reported as successful: path=%s body=%s", test.path, response.Body.String())
+		}
 	}
 }
 

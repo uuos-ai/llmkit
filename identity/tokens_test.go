@@ -86,3 +86,61 @@ func TestReplaceClientPrincipalRevokesEveryOldBindingFamily(t *testing.T) {
 		t.Fatalf("recovered=%#v ok=%v", recovered, ok)
 	}
 }
+
+func TestTokenPepperRotationRetainsAndRetiresVersions(t *testing.T) {
+	oldPepper := []byte(strings.Repeat("o", 32))
+	newPepper := []byte(strings.Repeat("n", 32))
+	manager, err := NewTokenManager(TokenManagerConfig{
+		Mode: TokenGateway, Pepper: oldPepper, CurrentPepperVersion: "2026-01",
+		AccessTTL: time.Hour, FamilyTTL: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPair, err := manager.Issue(Principal{ClientID: "client", UserID: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := BindingResult{Tokens: oldPair, Binding: UserBinding{ClientID: "client", UserID: "user", BindingVersion: 1}}
+	if err := manager.RememberBindingResult("client", 0, "bind", result); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := manager.RotatePepper(PepperKey{Version: "2026-07", Key: newPepper}, PepperKey{Version: "2026-01", Key: oldPepper}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := manager.Authenticate(context.Background(), []byte(oldPair.AccessToken)); !ok {
+		t.Fatal("retained pepper version did not validate an existing token")
+	}
+	if recovered, ok := manager.RecoverBindingResult("client", 0, "bind"); !ok || recovered.Tokens.AccessToken != oldPair.AccessToken {
+		t.Fatalf("pre-rotation binding recovery was lost: recovered=%#v ok=%v", recovered, ok)
+	}
+	newPair, err := manager.Issue(Principal{ClientID: "other", UserID: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := manager.RotatePepper(PepperKey{Version: "2026-07", Key: newPepper}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := manager.Authenticate(context.Background(), []byte(oldPair.AccessToken)); ok {
+		t.Fatal("retired pepper version continued validating old tokens")
+	}
+	if _, ok := manager.Authenticate(context.Background(), []byte(newPair.AccessToken)); !ok {
+		t.Fatal("current pepper version did not validate a new token")
+	}
+	if _, ok := manager.RecoverBindingResult("client", 0, "bind"); ok {
+		t.Fatal("binding recovery tied to a retired pepper remained addressable")
+	}
+}
+
+func TestTokenPepperRingValidation(t *testing.T) {
+	_, err := NewTokenManager(TokenManagerConfig{
+		Mode: TokenLocal, Pepper: []byte(strings.Repeat("p", 32)), CurrentPepperVersion: "same",
+		PreviousPeppers: []PepperKey{{Version: "same", Key: []byte(strings.Repeat("q", 32))}},
+		AccessTTL:       time.Minute, FamilyTTL: time.Hour,
+	})
+	if err == nil {
+		t.Fatal("duplicate pepper version was accepted")
+	}
+}
