@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,8 +34,7 @@ func Open(path, instanceID string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, errors.New("localstore: SQLite directory could not be created")
 	}
-	dsn := (&url.URL{Scheme: "file", Path: path}).String() + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, errors.New("localstore: SQLite could not be opened")
 	}
@@ -55,6 +53,8 @@ func Open(path, instanceID string) (*Store, error) {
 
 func (s *Store) initialize() error {
 	_, err := s.db.Exec(`
+PRAGMA busy_timeout=5000;
+PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS custom_providers (
  tenant_id TEXT NOT NULL,
  client_id TEXT NOT NULL,
