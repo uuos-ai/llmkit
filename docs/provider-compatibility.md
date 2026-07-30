@@ -12,28 +12,30 @@ Status values:
 | OpenAI Responses | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested |
 | Anthropic Messages | Tested | Tested | Not applicable | Tested codec | Tested codec | Tested codec | Tested | Tested |
 | Google Gemini generateContent | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested |
-| DeepSeek OpenAI-compatible Chat | Tested | Tested | Not exposed | Tested codec | Tested codec | Tested codec | Tested | Tested via shared codec |
-| Alibaba DashScope/Qwen OpenAI-compatible | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested via shared codec |
-| Volcengine Ark/Doubao Responses | Tested codec | Tested codec | Not exposed | Tested codec | Tested codec | Tested codec | Tested codec | Tested via shared codec |
-| Zhipu GLM Chat | Tested codec | Tested codec | Not exposed | Tested codec | Not declared | Tested codec | Tested codec | Tested via shared codec |
-| Moonshot/Kimi Chat | Tested | Tested codec | Not exposed | Tested codec | Tested codec | Tested codec | Tested | Tested via shared codec |
-| MiniMax Chat | Tested | Tested codec | Not exposed | Tested codec | Not declared | Tested codec | Tested | Tested via shared codec |
-| Tencent Hunyuan Chat/Embedding | Tested codec | Tested codec | Tested | Tested codec | Not declared | Not declared | Tested codec | Tested via shared codec |
-| Tencent TokenHub Chat | Tested | Tested | Not exposed | Not declared | Not declared | Not declared | Tested | Tested via shared codec |
-| Baidu Qianfan v2 | Tested | Tested codec | Tested codec | Tested codec | Tested codec | Tested codec | Tested codec | Tested via shared codec |
-| SiliconFlow Chat/Embedding/Rerank | Tested codec | Tested codec | Tested codec | Tested codec | Tested codec | Tested codec | Tested rerank fixture | Tested |
-| Azure OpenAI v1 | Tested profile | Tested profile | Tested profile | Tested profile | Tested profile | Tested profile | Tested codec | Tested via shared codec |
-| Amazon Bedrock Mantle | Tested profile | Tested profile | Not exposed | Tested profile | Tested profile | Tested profile | Tested codec | Tested via shared codec |
-| Vertex AI OpenAI-compatible | Tested profile | Tested profile | Not exposed | Tested profile | Tested profile | Tested profile | Tested codec | Tested via shared codec |
+| DeepSeek OpenAI-compatible Chat | Tested | Tested | Not exposed | Tested | Tested | Tested codec | Tested | Tested |
+| Alibaba DashScope/Qwen OpenAI-compatible | Tested | Tested | Tested | Tested | Tested | Tested codec | Tested | Tested |
+| Volcengine Ark/Doubao Responses | Tested | Tested | Not exposed | Tested | Tested | Tested codec | Tested | Tested |
+| Zhipu GLM Chat | Tested | Tested | Not exposed | Tested | Not declared | Tested codec | Tested | Tested |
+| Moonshot/Kimi Chat | Tested | Tested | Not exposed | Tested | Tested | Tested codec | Tested | Tested |
+| MiniMax Chat | Tested | Tested | Not exposed | Tested | Not declared | Tested codec | Tested | Tested |
+| Tencent Hunyuan Chat/Embedding | Tested | Tested | Tested | Tested | Not declared | Not declared | Tested | Tested |
+| Tencent TokenHub Chat | Tested | Tested | Not exposed | Not declared | Not declared | Not declared | Tested | Tested |
+| Baidu Qianfan v2 | Tested | Tested | Tested codec | Tested | Tested | Tested codec | Tested | Tested |
+| SiliconFlow Chat/Embedding/Rerank | Tested | Tested | Tested codec | Tested | Tested | Tested codec | Tested rerank fixture | Tested |
+| Azure OpenAI v1 | Tested | Tested | Tested profile | Tested | Tested | Tested profile | Tested | Tested |
+| Amazon Bedrock Mantle | Tested | Tested | Not exposed | Tested | Tested | Tested profile | Tested | Tested |
+| Vertex AI OpenAI-compatible | Tested | Tested | Not exposed | Tested | Tested | Tested profile | Tested | Tested |
 | OpenAI Moderation | Not applicable | Not applicable | Not applicable | Not applicable | Not applicable | Not applicable | Unavailable by protocol | Tested moderation fixture |
 
 All listed providers implement request-scoped credential validation and remote
 model enumeration. OpenAI-compatible profiles use their dedicated compatible
 model endpoint; Anthropic and Gemini use their native paginated model APIs.
 
-“Tested codec” currently means request/response fields are encoded or decoded
-by the provider adapter. Dedicated end-to-end tool-call and structured-output fixture cases
-remain required before the whole capability is declared fully Tested.
+“Tested codec” means request/response fields are encoded or decoded by the
+provider adapter without a full capability round trip. Every listed
+OpenAI-compatible profile now runs an independent offline generation,
+streaming, usage, tool-call, structured-output, rate-limit, secret-redaction,
+and malformed-response contract whenever it declares that capability.
 
 Every built-in adapter exposes a validated `AdapterManifest` with provider API
 version, operations, capabilities, auth schemes, profile, and maturity. P0
