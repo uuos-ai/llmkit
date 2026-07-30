@@ -118,6 +118,55 @@ func TestGenerationContract(t *testing.T) {
 	})
 }
 
+func TestToolsStructuredOutputAndReasoningRoundTrip(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		tools, toolsOK := payload["tools"].([]any)
+		outputConfig, formatOK := payload["output_config"].(map[string]any)
+		if !toolsOK || len(tools) != 1 || !formatOK || outputConfig["format"] == nil {
+			t.Fatalf("payload=%#v", payload)
+		}
+		_, _ = writer.Write([]byte(`{
+			"id":"msg_rich",
+			"content":[
+				{"type":"thinking","thinking":"thinking"},
+				{"type":"tool_use","id":"toolu_1","name":"weather","input":{"city":"Tokyo"}}
+			],
+			"stop_reason":"tool_use",
+			"usage":{"input_tokens":2,"output_tokens":1}
+		}`))
+	}))
+	defer server.Close()
+	call := testCall(server.URL)
+	call.Request.Tools = []llmkit.Tool{{Name: "weather", InputSchema: []byte(`{"type":"object"}`)}}
+	call.Request.ResponseFormat = &llmkit.ResponseFormat{Name: "forecast", Schema: []byte(`{"type":"object"}`), Strict: true}
+	response, err := testProvider(t).Generate(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool, reasoning := richParts(response.Message)
+	if tool == nil || tool.ID != "toolu_1" || tool.Name != "weather" || string(tool.Arguments) != `{"city":"Tokyo"}` || reasoning != "thinking" || response.FinishReason != llmkit.FinishToolCalls {
+		t.Fatalf("response=%#v", response)
+	}
+}
+
+func richParts(message llmkit.Message) (*llmkit.ToolCall, string) {
+	var tool *llmkit.ToolCall
+	var reasoning string
+	for _, part := range message.Parts {
+		switch part.Type {
+		case llmkit.ContentToolCall:
+			tool = part.ToolCall
+		case llmkit.ContentReasoning:
+			reasoning += part.Text
+		}
+	}
+	return tool, reasoning
+}
+
 func TestStreamingContract(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")

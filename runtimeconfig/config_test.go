@@ -94,3 +94,20 @@ func TestLocalSQLiteRequiresManagedSync(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLocalSharedBindingStoreRequiresServiceIdentity(t *testing.T) {
+	config := Defaults()
+	config.Mode = ModeLocalService
+	config.Socket = "/tmp/llmkit.sock"
+	config.ClientTokenHashFile = "/tmp/tokens.json"
+	config.Storage.CoordinationStore = "https://coordination"
+	if err := config.Validate(); err == nil {
+		t.Fatal("expected shared binding store without service identity to fail")
+	}
+	config.BusinessServiceTokenFile = "/service-token"
+	config.TLS.CertificateFile = "/cert"
+	config.TLS.PrivateKeyFile = "/key"
+	if err := config.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

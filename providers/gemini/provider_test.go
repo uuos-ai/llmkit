@@ -117,6 +117,54 @@ func TestGenerationContract(t *testing.T) {
 	})
 }
 
+func TestToolsStructuredOutputAndReasoningRoundTrip(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		tools, toolsOK := payload["tools"].([]any)
+		config, configOK := payload["generationConfig"].(map[string]any)
+		if !toolsOK || len(tools) != 1 || !configOK || config["responseMimeType"] != "application/json" || config["responseJsonSchema"] == nil {
+			t.Fatalf("payload=%#v", payload)
+		}
+		_, _ = writer.Write([]byte(`{
+			"responseId":"resp_rich",
+			"candidates":[{"content":{"role":"model","parts":[
+				{"text":"thinking","thought":true},
+				{"functionCall":{"id":"call_1","name":"weather","args":{"city":"Tokyo"}}}
+			]},"finishReason":"STOP"}],
+			"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1,"totalTokenCount":3,"thoughtsTokenCount":1}
+		}`))
+	}))
+	defer server.Close()
+	call := testCall(server.URL)
+	call.Request.Tools = []llmkit.Tool{{Name: "weather", InputSchema: []byte(`{"type":"object"}`)}}
+	call.Request.ResponseFormat = &llmkit.ResponseFormat{Name: "forecast", Schema: []byte(`{"type":"object"}`), Strict: true}
+	response, err := testProvider(t).Generate(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool, reasoning := richParts(response.Message)
+	if tool == nil || tool.ID != "call_1" || tool.Name != "weather" || string(tool.Arguments) != `{"city":"Tokyo"}` || reasoning != "thinking" || response.Usage.ReasoningTokens != 1 {
+		t.Fatalf("response=%#v", response)
+	}
+}
+
+func richParts(message llmkit.Message) (*llmkit.ToolCall, string) {
+	var tool *llmkit.ToolCall
+	var reasoning string
+	for _, part := range message.Parts {
+		switch part.Type {
+		case llmkit.ContentToolCall:
+			tool = part.ToolCall
+		case llmkit.ContentReasoning:
+			reasoning += part.Text
+		}
+	}
+	return tool, reasoning
+}
+
 func TestStreamingContract(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Query().Get("alt") != "sse" {

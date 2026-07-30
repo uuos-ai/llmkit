@@ -53,14 +53,25 @@ func TestEveryOpenAICompatibleProfileProtocolContract(t *testing.T) {
 			}
 
 			var calls atomic.Int32
-			var wantTools, wantStructured bool
+			var embeddingCalls atomic.Int32
+			var wantTools, wantStructured, wantReasoning bool
 			path := "/chat/completions"
 			if profile.api == "responses" {
 				path = "/responses"
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-				if request.URL.Path != path || request.Header.Get("Authorization") != "Bearer profile-secret" {
+				if request.Header.Get("Authorization") != "Bearer profile-secret" {
 					http.Error(writer, "unexpected request", http.StatusBadRequest)
+					return
+				}
+				if request.URL.Path == "/embeddings" {
+					embeddingCalls.Add(1)
+					writer.Header().Set("Content-Type", "application/json")
+					_, _ = writer.Write([]byte(`{"data":[{"index":1,"embedding":[0.3,0.4]},{"index":0,"embedding":[0.1,0.2]}],"usage":{"prompt_tokens":2,"total_tokens":2}}`))
+					return
+				}
+				if request.URL.Path != path {
+					http.Error(writer, "unexpected path", http.StatusBadRequest)
 					return
 				}
 				switch calls.Add(1) {
@@ -78,9 +89,13 @@ func TestEveryOpenAICompatibleProfileProtocolContract(t *testing.T) {
 					}
 					writer.Header().Set("Content-Type", "application/json")
 					if wantTools && profile.api == "chat" {
-						_, _ = writer.Write([]byte(`{"id":"chat","choices":[{"message":{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Tokyo\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`))
+						_, _ = writer.Write([]byte(`{"id":"chat","choices":[{"message":{"reasoning_content":"thinking","tool_calls":[{"id":"call_1","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Tokyo\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`))
 					} else if wantTools {
-						_, _ = writer.Write([]byte(`{"id":"response","status":"completed","output":[{"type":"function_call","call_id":"call_1","name":"weather","arguments":"{\"city\":\"Tokyo\"}"}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}`))
+						_, _ = writer.Write([]byte(`{"id":"response","status":"completed","output":[{"type":"message","content":[{"type":"reasoning_text","text":"thinking"}]},{"type":"function_call","call_id":"call_1","name":"weather","arguments":"{\"city\":\"Tokyo\"}"}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}`))
+					} else if wantReasoning && profile.api == "chat" {
+						_, _ = writer.Write([]byte(`{"id":"chat","choices":[{"message":{"reasoning_content":"thinking","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`))
+					} else if wantReasoning {
+						_, _ = writer.Write([]byte(`{"id":"response","status":"completed","output":[{"type":"message","content":[{"type":"reasoning_text","text":"thinking"},{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}`))
 					} else if profile.api == "chat" {
 						_, _ = writer.Write([]byte(`{"id":"chat","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`))
 					} else {
@@ -118,6 +133,7 @@ func TestEveryOpenAICompatibleProfileProtocolContract(t *testing.T) {
 			modelCapabilities := capabilities.Models[target.Model].Capabilities
 			wantTools = hasCapability(modelCapabilities, llmkit.CapabilityTools)
 			wantStructured = hasCapability(modelCapabilities, llmkit.CapabilityStructured)
+			wantReasoning = hasCapability(modelCapabilities, llmkit.CapabilityReasoning)
 			request := llmkit.GenerateRequest{Messages: []llmkit.Message{{Role: llmkit.RoleUser, Parts: []llmkit.ContentPart{{Type: llmkit.ContentText, Text: "hi"}}}}}
 			if wantTools {
 				request.Tools = []llmkit.Tool{{Name: "weather", InputSchema: []byte(`{"type":"object"}`)}}
@@ -135,11 +151,14 @@ func TestEveryOpenAICompatibleProfileProtocolContract(t *testing.T) {
 				t.Fatalf("generation response=%#v err=%v", response, err)
 			}
 			if wantTools {
-				if len(response.Message.Parts) != 1 || response.Message.Parts[0].ToolCall == nil || response.Message.Parts[0].ToolCall.Name != "weather" {
+				if toolCall(response.Message) == nil || toolCall(response.Message).Name != "weather" {
 					t.Fatalf("tool response=%#v", response)
 				}
-			} else if len(response.Message.Parts) != 1 || response.Message.Parts[0].Text != "ok" {
+			} else if textPart(response.Message, llmkit.ContentText) != "ok" {
 				t.Fatalf("text response=%#v", response)
+			}
+			if wantReasoning && textPart(response.Message, llmkit.ContentReasoning) != "thinking" {
+				t.Fatalf("reasoning response=%#v", response)
 			}
 
 			streamCall := call
@@ -165,8 +184,38 @@ func TestEveryOpenAICompatibleProfileProtocolContract(t *testing.T) {
 			if !errors.As(err, &providerErr) || providerErr.Kind != llmkit.ErrorProtocol {
 				t.Fatalf("malformed response error=%#v", err)
 			}
+
+			embedder, supportsEmbedding := provider.(llmkit.Embedder)
+			declaresEmbedding := hasCapability(modelCapabilities, llmkit.CapabilityEmbedding)
+			if supportsEmbedding != declaresEmbedding {
+				t.Fatalf("embedding interface=%v declaration=%v", supportsEmbedding, declaresEmbedding)
+			}
+			if supportsEmbedding {
+				embedding, err := embedder.Embed(context.Background(), llmkit.EmbedCall{Target: target, Credential: credential, Input: []string{"one", "two"}})
+				if err != nil || len(embedding.Vectors) != 2 || embedding.Vectors[0][0] != 0.1 || embedding.Vectors[1][0] != 0.3 || embedding.Usage.Source != llmkit.UsageReported || embeddingCalls.Load() != 1 {
+					t.Fatalf("embedding=%#v calls=%d err=%v", embedding, embeddingCalls.Load(), err)
+				}
+			}
 		})
 	}
+}
+
+func toolCall(message llmkit.Message) *llmkit.ToolCall {
+	for _, part := range message.Parts {
+		if part.Type == llmkit.ContentToolCall {
+			return part.ToolCall
+		}
+	}
+	return nil
+}
+
+func textPart(message llmkit.Message, contentType llmkit.ContentType) string {
+	for _, part := range message.Parts {
+		if part.Type == contentType {
+			return part.Text
+		}
+	}
+	return ""
 }
 
 func hasCapability(capabilities []llmkit.Capability, expected llmkit.Capability) bool {

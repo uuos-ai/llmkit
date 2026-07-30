@@ -3,39 +3,39 @@
 Status values:
 
 - **Tested**: covered by offline protocol fixtures and the conformance harness.
-- **Planned**: architecture and scope accepted; implementation not complete.
 - **Not applicable**: the protocol does not expose the capability.
+- **Not declared**: this adapter intentionally does not advertise the capability.
 
 | Provider protocol | Generate | Stream | Embed | Tools | Structured output | Reasoning | Usage | Error mapping |
 |---|---|---|---|---|---|---|---|---|
-| OpenAI Chat Completions | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested |
-| OpenAI Responses | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested |
-| Anthropic Messages | Tested | Tested | Not applicable | Tested codec | Tested codec | Tested codec | Tested | Tested |
-| Google Gemini generateContent | Tested | Tested | Tested | Tested codec | Tested codec | Tested codec | Tested | Tested |
-| DeepSeek OpenAI-compatible Chat | Tested | Tested | Not exposed | Tested | Tested | Tested codec | Tested | Tested |
-| Alibaba DashScope/Qwen OpenAI-compatible | Tested | Tested | Tested | Tested | Tested | Tested codec | Tested | Tested |
-| Volcengine Ark/Doubao Responses | Tested | Tested | Not exposed | Tested | Tested | Tested codec | Tested | Tested |
-| Zhipu GLM Chat | Tested | Tested | Not exposed | Tested | Not declared | Tested codec | Tested | Tested |
-| Moonshot/Kimi Chat | Tested | Tested | Not exposed | Tested | Tested | Tested codec | Tested | Tested |
-| MiniMax Chat | Tested | Tested | Not exposed | Tested | Not declared | Tested codec | Tested | Tested |
+| OpenAI Chat Completions | Tested | Tested | Tested | Tested | Tested | Tested | Tested | Tested |
+| OpenAI Responses | Tested | Tested | Tested | Tested | Tested | Tested | Tested | Tested |
+| Anthropic Messages | Tested | Tested | Not applicable | Tested | Tested | Tested | Tested | Tested |
+| Google Gemini generateContent | Tested | Tested | Tested | Tested | Tested | Tested | Tested | Tested |
+| DeepSeek OpenAI-compatible Chat | Tested | Tested | Not applicable | Tested | Tested | Tested | Tested | Tested |
+| Alibaba DashScope/Qwen OpenAI-compatible | Tested | Tested | Tested | Tested | Tested | Tested | Tested | Tested |
+| Volcengine Ark/Doubao Responses | Tested | Tested | Not applicable | Tested | Tested | Tested | Tested | Tested |
+| Zhipu GLM Chat | Tested | Tested | Not applicable | Tested | Not declared | Tested | Tested | Tested |
+| Moonshot/Kimi Chat | Tested | Tested | Not applicable | Tested | Tested | Tested | Tested | Tested |
+| MiniMax Chat | Tested | Tested | Not applicable | Tested | Not declared | Tested | Tested | Tested |
 | Tencent Hunyuan Chat/Embedding | Tested | Tested | Tested | Tested | Not declared | Not declared | Tested | Tested |
-| Tencent TokenHub Chat | Tested | Tested | Not exposed | Not declared | Not declared | Not declared | Tested | Tested |
-| Baidu Qianfan v2 | Tested | Tested | Tested codec | Tested | Tested | Tested codec | Tested | Tested |
-| SiliconFlow Chat/Embedding/Rerank | Tested | Tested | Tested codec | Tested | Tested | Tested codec | Tested rerank fixture | Tested |
-| Azure OpenAI v1 | Tested | Tested | Tested profile | Tested | Tested | Tested profile | Tested | Tested |
-| Amazon Bedrock Mantle | Tested | Tested | Not exposed | Tested | Tested | Tested profile | Tested | Tested |
-| Vertex AI OpenAI-compatible | Tested | Tested | Not exposed | Tested | Tested | Tested profile | Tested | Tested |
-| OpenAI Moderation | Not applicable | Not applicable | Not applicable | Not applicable | Not applicable | Not applicable | Unavailable by protocol | Tested moderation fixture |
+| Tencent TokenHub Chat | Tested | Tested | Not applicable | Not declared | Not declared | Not declared | Tested | Tested |
+| Baidu Qianfan v2 | Tested | Tested | Tested | Tested | Tested | Tested | Tested | Tested |
+| SiliconFlow Chat/Embedding/Rerank | Tested | Tested | Tested | Tested | Tested | Tested | Tested | Tested |
+| Azure OpenAI v1 | Tested | Tested | Tested | Tested | Tested | Tested | Tested | Tested |
+| Amazon Bedrock Mantle | Tested | Tested | Not applicable | Tested | Tested | Tested | Tested | Tested |
+| Vertex AI OpenAI-compatible | Tested | Tested | Not applicable | Tested | Tested | Tested | Tested | Tested |
+| OpenAI Moderation | Not applicable | Not applicable | Not applicable | Not applicable | Not applicable | Not applicable | Not applicable | Tested |
 
 All listed providers implement request-scoped credential validation and remote
 model enumeration. OpenAI-compatible profiles use their dedicated compatible
 model endpoint; Anthropic and Gemini use their native paginated model APIs.
 
-“Tested codec” means request/response fields are encoded or decoded by the
-provider adapter without a full capability round trip. Every listed
-OpenAI-compatible profile now runs an independent offline generation,
-streaming, usage, tool-call, structured-output, rate-limit, secret-redaction,
-and malformed-response contract whenever it declares that capability.
+Every listed OpenAI-compatible profile runs an independent offline generation,
+streaming, usage, tool-call, structured-output, reasoning, embedding,
+rate-limit, secret-redaction, and malformed-response contract whenever it
+declares that capability. OpenAI, Anthropic, and Gemini additionally run native
+rich-response round trips for tools, structured output, and reasoning.
 
 Every built-in adapter exposes a validated `AdapterManifest` with provider API
 version, operations, capabilities, auth schemes, profile, and maturity. P0

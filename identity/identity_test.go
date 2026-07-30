@@ -2,7 +2,9 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 )
 
 func TestStaticTokensAuthenticateAndIsolate(t *testing.T) {
@@ -47,4 +49,83 @@ func TestSingleTokenDestroyInvalidatesToken(t *testing.T) {
 	if _, ok := authenticator.Authenticate(context.Background(), token); ok {
 		t.Fatal("destroyed token authenticated")
 	}
+}
+
+func TestBindingAuthenticatorFencesAndEnrichesPrincipals(t *testing.T) {
+	token := []byte("1123456789abcdef0123456789abcdef")
+	store := NewMemoryUserBindingStore(nil)
+	_, current, err := store.Bind(context.Background(), BindRequest{ClientID: "client", UserID: "current"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, _ := SingleToken(token, Principal{ClientID: "client", Scopes: map[string]struct{}{ScopeInferenceExecute: {}}})
+	authenticator := BindingAuthenticator{Base: base, Store: store}
+	principal, ok := authenticator.Authenticate(context.Background(), token)
+	if !ok || principal.UserID != "current" || principal.BindingVersion != current.BindingVersion || !principal.HasScope(ScopeInferenceExecute) {
+		t.Fatalf("principal=%#v ok=%v", principal, ok)
+	}
+
+	stale, _ := SingleToken(token, Principal{ClientID: "client", UserID: "old", BindingVersion: current.BindingVersion})
+	authenticator.Base = stale
+	if _, ok := authenticator.Authenticate(context.Background(), token); ok {
+		t.Fatal("stale user binding authenticated")
+	}
+	staleVersion, _ := SingleToken(token, Principal{ClientID: "client", UserID: "current", BindingVersion: current.BindingVersion + 1})
+	authenticator.Base = staleVersion
+	if _, ok := authenticator.Authenticate(context.Background(), token); ok {
+		t.Fatal("stale binding version authenticated")
+	}
+}
+
+func TestBindingAuthenticatorFailsClosedOnStoreError(t *testing.T) {
+	token := []byte("2123456789abcdef0123456789abcdef")
+	base, _ := SingleToken(token, Principal{ClientID: "client"})
+	store := failingBindingStore{}
+	if _, ok := (BindingAuthenticator{Base: base, Store: store}).Authenticate(context.Background(), token); ok {
+		t.Fatal("binding store error authenticated a token")
+	}
+}
+
+func TestBindingAuthenticatorRevokesInFlightPrincipalOnRebind(t *testing.T) {
+	store := NewMemoryUserBindingStore(nil)
+	_, current, err := store.Bind(context.Background(), BindRequest{ClientID: "client", UserID: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator := BindingAuthenticator{Store: store}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	revoked, err := authenticator.WatchRevocation(ctx, Principal{
+		ClientID: "client", UserID: current.UserID, BindingVersion: current.BindingVersion,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-revoked:
+		t.Fatal("principal revoked before the binding changed")
+	default:
+	}
+	if _, _, err := store.Bind(context.Background(), BindRequest{
+		ClientID: "client", UserID: "second", ExpectedBindingVersion: current.BindingVersion,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-revoked:
+	case <-time.After(time.Second):
+		t.Fatal("principal was not revoked after rebind")
+	}
+}
+
+type failingBindingStore struct{}
+
+func (failingBindingStore) Current(context.Context, string) (UserBinding, bool, error) {
+	return UserBinding{}, false, errors.New("unavailable")
+}
+func (failingBindingStore) Bind(context.Context, BindRequest) (UserBinding, UserBinding, error) {
+	return UserBinding{}, UserBinding{}, errors.New("unavailable")
+}
+func (failingBindingStore) Watch(context.Context, string, uint64) (<-chan UserBinding, error) {
+	return nil, errors.New("unavailable")
 }

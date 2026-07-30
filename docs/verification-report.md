@@ -13,7 +13,7 @@ cross-compile all release targets.
 | Stream faults | Early EOF is malformed, terminal event ordering is required, oversized SSE events fail closed |
 | IPC security | Constant-time session authentication, 8 MiB frame bound, malformed/truncated/oversized frame rejection, custom endpoint denial |
 | IPC lifecycle | Concurrent cancellation, synchronous stream backpressure, parent monitoring, health and graceful shutdown |
-| Client isolation | Per-token client identity, client-local user binding, cross-client target rejection, atomic client-cache replacement |
+| Client isolation | Per-token client identity, client-local user binding, cross-client target rejection, atomic client-cache replacement, shared-store request fencing and in-flight cancellation |
 | Routing | Strict explicit target IDs, dynamic default resolution, A2 non-secret local available-target merge |
 | Gateway | Bearer authentication, external target/secret resolution, normalized JSON response and audit metadata |
 | Gateway identity | OIDC control-plane isolation, access/refresh exchange, user-binding fencing, restricted 60-second recovery sessions |

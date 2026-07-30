@@ -130,6 +130,9 @@ func (c Config) Validate() error {
 		if c.Socket == "" || c.ClientTokenHashFile == "" {
 			return errors.New("llmkitd config: local-service requires socket and client_token_hash_file")
 		}
+		if c.Storage.CoordinationStore != "" && (c.BusinessServiceTokenFile == "" || c.TLS.CertificateFile == "" || c.TLS.PrivateKeyFile == "") {
+			return errors.New("llmkitd config: shared local-service binding storage requires business_service_token_file and mTLS certificate/private key")
+		}
 		if c.Storage.SQLitePath != "" && c.CustomProviderSync != SyncManaged {
 			return errors.New("llmkitd config: local SQLite/OS secret storage requires custom_provider_sync=managed")
 		}

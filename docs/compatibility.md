@@ -87,3 +87,10 @@ release artifacts move to the three-mode `llmkitd` binary before v1.0.
   `provider_account`, then commit reported input/output token usage. A stream
   that reaches EOF without a normalized terminal event is accounted and
   audited as `protocol_error`, never as successful completion.
+- OpenAI-compatible non-streaming tool `arguments` are now normalized from the
+  upstream JSON string into the raw JSON bytes expected by `ToolCall.Arguments`;
+  the previous pre-release behavior retained the wire string's quoting and
+  escapes.
+- `local-service` may now use the external coordination endpoint as a shared
+  `UserBindingStore`. Request authentication is fenced by the current binding,
+  and binding changes cancel active operations through the store watch.

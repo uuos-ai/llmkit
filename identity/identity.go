@@ -57,6 +57,15 @@ type Authenticator interface {
 	Authenticate(context.Context, []byte) (Principal, bool)
 }
 
+// RevocationWatcher closes the returned channel when an authenticated
+// principal must stop using an in-flight request. A closed channel is also a
+// fail-closed signal when the backing watch terminates unexpectedly.
+type RevocationWatcher interface {
+	WatchRevocation(context.Context, Principal) (<-chan struct{}, error)
+}
+
+var ErrPrincipalRevoked = errors.New("identity: principal was revoked")
+
 // RecoveryAuthenticator accepts an immediately-invalidated access token only
 // for a protocol session restricted to refresh/bind idempotency recovery.
 type RecoveryAuthenticator interface {
@@ -67,6 +76,58 @@ type AuthenticatorFunc func(context.Context, []byte) (Principal, bool)
 
 func (f AuthenticatorFunc) Authenticate(ctx context.Context, token []byte) (Principal, bool) {
 	return f(ctx, token)
+}
+
+// BindingAuthenticator fences an authenticated principal against the current
+// client-local user binding. Unbound principals inherit an existing binding;
+// stale user IDs or binding versions fail closed. This is used by
+// local-service instances that may share a UserBindingStore.
+type BindingAuthenticator struct {
+	Base  Authenticator
+	Store UserBindingStore
+}
+
+func (a BindingAuthenticator) Authenticate(ctx context.Context, token []byte) (Principal, bool) {
+	if a.Base == nil || a.Store == nil {
+		return Principal{}, false
+	}
+	principal, ok := a.Base.Authenticate(ctx, token)
+	if !ok || principal.ClientID == "" {
+		return Principal{}, false
+	}
+	binding, bound, err := a.Store.Current(ctx, principal.ClientID)
+	if err != nil {
+		return Principal{}, false
+	}
+	if principal.UserID == "" {
+		if bound {
+			principal.UserID, principal.BindingVersion = binding.UserID, binding.BindingVersion
+		}
+		return principal, true
+	}
+	if !bound || binding.UserID != principal.UserID || binding.BindingVersion != principal.BindingVersion {
+		return Principal{}, false
+	}
+	return principal, true
+}
+
+func (a BindingAuthenticator) WatchRevocation(ctx context.Context, principal Principal) (<-chan struct{}, error) {
+	if a.Store == nil || principal.ClientID == "" {
+		return nil, errors.New("identity: binding store and client ID are required")
+	}
+	updates, err := a.Store.Watch(ctx, principal.ClientID, principal.BindingVersion)
+	if err != nil {
+		return nil, err
+	}
+	revoked := make(chan struct{})
+	go func() {
+		defer close(revoked)
+		select {
+		case <-ctx.Done():
+		case <-updates:
+		}
+	}()
+	return revoked, nil
 }
 
 // MultiAuthenticator tries independent token namespaces in order. Callers

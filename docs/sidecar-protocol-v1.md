@@ -15,7 +15,7 @@ Status: implementation baseline (`1.0`).
   and malformed frames fail closed.
 - The first request on each connection must be an authenticated `handshake`.
   Every later request repeats the current token and protocol version.
-  Local-service maps each token family to a trusted client identity and client-local current user binding.
+  Local-service maps each token family to a trusted client identity and client-local current user binding. It re-authenticates the request principal instead of retaining the handshake snapshot. When an external UserBindingStore is configured, each request is fenced against the current binding and an active request is canceled when its binding watch changes or fails.
 
 After refresh or user switching, the previous access token cannot execute data
 operations. For a lost response, a client may reconnect within the 60-second

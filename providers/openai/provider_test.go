@@ -183,6 +183,62 @@ func TestResponsesGenerationContract(t *testing.T) {
 	})
 }
 
+func TestToolsStructuredOutputAndReasoningRoundTrip(t *testing.T) {
+	for _, api := range []API{APIChat, APIResponses} {
+		t.Run(string(api), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				var payload map[string]any
+				if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+					t.Fatal(err)
+				}
+				tools, ok := payload["tools"].([]any)
+				if !ok || len(tools) != 1 {
+					t.Fatalf("tools=%#v", payload["tools"])
+				}
+				if api == APIChat {
+					format, ok := payload["response_format"].(map[string]any)
+					if !ok || format["type"] != "json_schema" {
+						t.Fatalf("response_format=%#v", payload["response_format"])
+					}
+					_, _ = writer.Write([]byte(`{"id":"chat","choices":[{"message":{"reasoning_content":"thinking","tool_calls":[{"id":"call_1","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Tokyo\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3,"completion_tokens_details":{"reasoning_tokens":1}}}`))
+					return
+				}
+				text, ok := payload["text"].(map[string]any)
+				if !ok || text["format"] == nil {
+					t.Fatalf("text format=%#v", payload["text"])
+				}
+				_, _ = writer.Write([]byte(`{"id":"response","status":"completed","output":[{"type":"message","content":[{"type":"reasoning_text","text":"thinking"}]},{"type":"function_call","call_id":"call_1","name":"weather","arguments":"{\"city\":\"Tokyo\"}"}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3,"output_tokens_details":{"reasoning_tokens":1}}}`))
+			}))
+			defer server.Close()
+			call := baseCall(server.URL, api, bearerCredential(t))
+			call.Request.Tools = []llmkit.Tool{{Name: "weather", InputSchema: []byte(`{"type":"object"}`)}}
+			call.Request.ResponseFormat = &llmkit.ResponseFormat{Name: "forecast", Schema: []byte(`{"type":"object"}`), Strict: true}
+			response, err := newTestProvider(t).Generate(context.Background(), call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tool, reasoning := richParts(response.Message)
+			if tool == nil || tool.Name != "weather" || string(tool.Arguments) != `{"city":"Tokyo"}` || reasoning != "thinking" || response.Usage.ReasoningTokens != 1 {
+				t.Fatalf("response=%#v", response)
+			}
+		})
+	}
+}
+
+func richParts(message llmkit.Message) (*llmkit.ToolCall, string) {
+	var tool *llmkit.ToolCall
+	var reasoning string
+	for _, part := range message.Parts {
+		switch part.Type {
+		case llmkit.ContentToolCall:
+			tool = part.ToolCall
+		case llmkit.ContentReasoning:
+			reasoning += part.Text
+		}
+	}
+	return tool, reasoning
+}
+
 func TestChatStreamingContract(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Accept") != "text/event-stream" {

@@ -2,7 +2,6 @@ package openai
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/uuos-ai/llmkit"
 )
@@ -16,8 +15,8 @@ type chatResponse struct {
 			ToolCalls        []struct {
 				ID       string `json:"id"`
 				Function struct {
-					Name      string          `json:"name"`
-					Arguments json.RawMessage `json:"arguments"`
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
 				} `json:"function"`
 			} `json:"tool_calls"`
 		} `json:"message"`
@@ -52,7 +51,7 @@ func (p *Provider) generateChat(ctx context.Context, call llmkit.GenerateCall) (
 			ToolCall: &llmkit.ToolCall{
 				ID:        tool.ID,
 				Name:      tool.Function.Name,
-				Arguments: append([]byte(nil), tool.Function.Arguments...),
+				Arguments: []byte(tool.Function.Arguments),
 			},
 		})
 	}
@@ -71,11 +70,11 @@ type responsesResponse struct {
 		Reason string `json:"reason"`
 	} `json:"incomplete_details"`
 	Output []struct {
-		Type      string          `json:"type"`
-		ID        string          `json:"id"`
-		CallID    string          `json:"call_id"`
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
+		Type      string `json:"type"`
+		ID        string `json:"id"`
+		CallID    string `json:"call_id"`
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
 		Content   []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
@@ -109,7 +108,7 @@ func (p *Provider) generateResponses(ctx context.Context, call llmkit.GenerateCa
 			parts = append(parts, llmkit.ContentPart{Type: llmkit.ContentToolCall, ToolCall: &llmkit.ToolCall{
 				ID:        item.CallID,
 				Name:      item.Name,
-				Arguments: append([]byte(nil), item.Arguments...),
+				Arguments: []byte(item.Arguments),
 			}})
 		}
 	}

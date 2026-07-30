@@ -183,3 +183,93 @@ func TestCancelStopsActiveHandler(t *testing.T) {
 	}
 	_ = clientSide.Close()
 }
+
+func TestBindingChangeCancelsActiveHandler(t *testing.T) {
+	revoked := make(chan struct{})
+	principal := identity.Principal{ClientID: "client", UserID: "user", BindingVersion: 1}
+	service, err := New(Config{
+		Authenticator: identity.AuthenticatorFunc(func(context.Context, []byte) (identity.Principal, bool) {
+			return principal, true
+		}),
+		RevocationWatcher: revocationWatcherFunc(func(context.Context, identity.Principal) (<-chan struct{}, error) {
+			return revoked, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	if err := service.Register(protocol.MethodGenerate, func(ctx context.Context, _ json.RawMessage) (any, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}); err != nil {
+		t.Fatal(err)
+	}
+	serverSide, clientSide := net.Pipe()
+	go func() { _ = service.ServeConn(context.Background(), serverSide) }()
+	codec := protocol.NewCodec(clientSide, clientSide, 0)
+	_ = handshake(t, codec, "token")
+	if err := codec.WriteRequest(protocol.Request{
+		Version: protocol.Version, SessionKey: "token", RequestID: "generate", Method: protocol.MethodGenerate,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not start")
+	}
+	close(revoked)
+	response, err := codec.ReadResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Type != protocol.TypeError || response.Error == nil || response.Error.Kind != "authentication" {
+		t.Fatalf("response = %#v", response)
+	}
+	_ = clientSide.Close()
+}
+
+func TestRequestUsesFreshlyAuthenticatedPrincipal(t *testing.T) {
+	service, err := New(Config{Authenticator: identity.AuthenticatorFunc(func(_ context.Context, token []byte) (identity.Principal, bool) {
+		version := uint64(1)
+		if string(token) == "request" {
+			version = 2
+		}
+		return identity.Principal{ClientID: "client", UserID: "user", BindingVersion: version}, true
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Register(protocol.MethodGenerate, func(ctx context.Context, _ json.RawMessage) (any, error) {
+		principal, _ := identity.FromContext(ctx)
+		return principal.BindingVersion, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	serverSide, clientSide := net.Pipe()
+	go func() { _ = service.ServeConn(context.Background(), serverSide) }()
+	codec := protocol.NewCodec(clientSide, clientSide, 0)
+	_ = handshake(t, codec, "handshake")
+	if err := codec.WriteRequest(protocol.Request{
+		Version: protocol.Version, SessionKey: "request", RequestID: "generate", Method: protocol.MethodGenerate,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	response, err := codec.ReadResponse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var version uint64
+	if response.Type != protocol.TypeResult || json.Unmarshal(response.Payload, &version) != nil || version != 2 {
+		t.Fatalf("response = %#v, version = %d", response, version)
+	}
+	_ = clientSide.Close()
+}
+
+type revocationWatcherFunc func(context.Context, identity.Principal) (<-chan struct{}, error)
+
+func (f revocationWatcherFunc) WatchRevocation(ctx context.Context, principal identity.Principal) (<-chan struct{}, error) {
+	return f(ctx, principal)
+}

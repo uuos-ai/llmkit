@@ -124,27 +124,43 @@ func runLocalService(ctx context.Context, stop context.CancelFunc, config runtim
 	if err != nil {
 		return err
 	}
-	listener, cleanup, err := listenLocal(config.Socket)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	shutdown := sync.OnceFunc(func() { stop(); _ = listener.Close() })
-	service, err := server.New(server.Config{
-		Authenticator: identity.MultiAuthenticator{tokens, enrollment}, RecoveryAuthenticator: tokens, MaxFrameBytes: config.MaxFrameBytes, Shutdown: shutdown,
-		Build: server.BuildInfo{SidecarVersion: version, LLMKitVersion: llmkitVersion, BuildID: buildID, InstanceID: config.InstanceID},
-	})
-	if err != nil {
-		return err
-	}
-	defer service.Close()
-	bindings := identity.NewMemoryUserBindingStore(identity.UserBindingAuthorizerFunc(func(ctx context.Context, _ identity.BindRequest) error {
+	var bindings identity.UserBindingStore = identity.NewMemoryUserBindingStore(identity.UserBindingAuthorizerFunc(func(ctx context.Context, _ identity.BindRequest) error {
 		principal, ok := identity.FromContext(ctx)
 		if !ok || !principal.HasScope(identity.ScopeUsersBind) {
 			return identity.ErrBindingUnauthorized
 		}
 		return nil
 	}))
+	if config.Storage.CoordinationStore != "" {
+		serviceToken, sourceErr := servicetoken.NewFileSource(config.BusinessServiceTokenFile)
+		if sourceErr != nil {
+			return sourceErr
+		}
+		coordination, coordinationErr := httpcoord.New(
+			config.Storage.CoordinationStore, config.TLS.CertificateFile, config.TLS.PrivateKeyFile, serviceToken,
+		)
+		if coordinationErr != nil {
+			return coordinationErr
+		}
+		bindings = coordination
+	}
+	listener, cleanup, err := listenLocal(config.Socket)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	shutdown := sync.OnceFunc(func() { stop(); _ = listener.Close() })
+	authenticator := identity.BindingAuthenticator{
+		Base: identity.MultiAuthenticator{tokens, enrollment}, Store: bindings,
+	}
+	service, err := server.New(server.Config{
+		Authenticator: authenticator, RecoveryAuthenticator: tokens, MaxFrameBytes: config.MaxFrameBytes, Shutdown: shutdown,
+		Build: server.BuildInfo{SidecarVersion: version, LLMKitVersion: llmkitVersion, BuildID: buildID, InstanceID: config.InstanceID},
+	})
+	if err != nil {
+		return err
+	}
+	defer service.Close()
 	if err := service.Register(protocol.MethodEnroll, func(ctx context.Context, _ json.RawMessage) (any, error) {
 		principal, ok := identity.FromContext(ctx)
 		if !ok || !principal.HasScope(identity.ScopeClientsEnroll) {
@@ -389,7 +405,7 @@ func parseFlags(arguments []string) (string, runtimeconfig.Overrides, error) {
 	set.Var(optionalString{&overrides.ConfigStore}, "config-store", "external HTTPS ConfigStore URL")
 	set.Var(optionalString{&overrides.SecretStore}, "secret-store", "external HTTPS SecretStore URL")
 	set.Var(optionalString{&overrides.AuditStore}, "audit-store", "external HTTPS AuditStore URL")
-	set.Var(optionalString{&overrides.CoordinationStore}, "coordination-store", "external HTTPS session, binding, and rate-limit store URL")
+	set.Var(optionalString{&overrides.CoordinationStore}, "coordination-store", "external HTTPS binding store for local-service, or session/binding/rate-limit store for gateway")
 	set.Var(optionalString{&overrides.SQLitePath}, "sqlite-path", "optional local-service SQLite path")
 	if err := set.Parse(arguments); err != nil {
 		return "", runtimeconfig.Overrides{}, fmt.Errorf("llmkitd: parse flags: %w", err)

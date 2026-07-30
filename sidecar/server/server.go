@@ -39,6 +39,7 @@ type Config struct {
 	SessionKey            []byte
 	Authenticator         identity.Authenticator
 	RecoveryAuthenticator identity.RecoveryAuthenticator
+	RevocationWatcher     identity.RevocationWatcher
 	MaxFrameBytes         uint32
 	Build                 BuildInfo
 	Shutdown              func()
@@ -48,6 +49,7 @@ type Server struct {
 	sessionKey []byte
 	auth       identity.Authenticator
 	recovery   identity.RecoveryAuthenticator
+	revocation identity.RevocationWatcher
 	maxFrame   uint32
 	build      BuildInfo
 	shutdown   func()
@@ -75,8 +77,12 @@ func New(config Config) (*Server, error) {
 			return nil, err
 		}
 	}
+	revocation := config.RevocationWatcher
+	if revocation == nil {
+		revocation, _ = authenticator.(identity.RevocationWatcher)
+	}
 	return &Server{
-		sessionKey: key, auth: authenticator, recovery: config.RecoveryAuthenticator, maxFrame: config.MaxFrameBytes,
+		sessionKey: key, auth: authenticator, recovery: config.RecoveryAuthenticator, revocation: revocation, maxFrame: config.MaxFrameBytes,
 		build: config.Build, shutdown: config.Shutdown,
 		handlers: make(map[protocol.Method]Handler),
 	}, nil
@@ -174,7 +180,23 @@ func (s *Server) ServeConn(ctx context.Context, connection io.ReadWriteCloser) e
 			_ = writer.write(errorResponse("", "invalid_request", "request_id is required"))
 			continue
 		}
-		requestCtx, cancel := context.WithCancel(connectionCtx)
+		requestCtx, cancelCause := context.WithCancelCause(identity.WithPrincipal(connectionCtx, requestPrincipal))
+		cancel := func() { cancelCause(context.Canceled) }
+		if s.revocation != nil && request.Method != protocol.MethodBindUser {
+			revoked, watchErr := s.revocation.WatchRevocation(requestCtx, requestPrincipal)
+			if watchErr != nil {
+				cancel()
+				_ = writer.write(errorResponse(request.RequestID, "authentication", "sidecar request rejected"))
+				continue
+			}
+			go func() {
+				select {
+				case <-revoked:
+					cancelCause(identity.ErrPrincipalRevoked)
+				case <-requestCtx.Done():
+				}
+			}()
+		}
 		activeMu.Lock()
 		if _, duplicate := active[request.RequestID]; duplicate {
 			activeMu.Unlock()
@@ -264,6 +286,10 @@ func (s *Server) dispatch(ctx context.Context, request protocol.Request, writer 
 		}
 		payload, err := handler(ctx, request.Payload)
 		if err != nil {
+			if errors.Is(context.Cause(ctx), identity.ErrPrincipalRevoked) {
+				_ = writer.write(errorResponse(request.RequestID, "authentication", "sidecar request principal was revoked"))
+				return
+			}
 			_ = writer.write(responseForError(request.RequestID, err))
 			return
 		}
@@ -274,6 +300,10 @@ func (s *Server) dispatch(ctx context.Context, request protocol.Request, writer 
 			}
 			emitter := eventEmitter{requestID: request.RequestID, writer: writer}
 			if err := sequence.Run(ctx, emitter); err != nil {
+				if errors.Is(context.Cause(ctx), identity.ErrPrincipalRevoked) {
+					_ = writer.write(errorResponse(request.RequestID, "authentication", "sidecar request principal was revoked"))
+					return
+				}
 				_ = writer.write(responseForError(request.RequestID, err))
 				return
 			}
