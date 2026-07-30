@@ -366,3 +366,21 @@ func TestEmbeddings(t *testing.T) {
 		t.Fatalf("unexpected vectors: %#v", response.Vectors)
 	}
 }
+
+func TestModerationNormalizesCategories(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/moderations" {
+			t.Fatalf("path = %q", request.URL.Path)
+		}
+		_, _ = writer.Write([]byte(`{"id":"mod_1","results":[{"flagged":true,"categories":{"violence":true,"hate":false},"category_scores":{"violence":0.9,"hate":0.1}}]}`))
+	}))
+	defer server.Close()
+	response, err := newTestProvider(t).Moderate(context.Background(), llmkit.ModerateCall{Target: llmkit.Target{Provider: DefaultProviderID, Model: "omni-moderation-latest", Endpoint: server.URL}, Credential: bearerCredential(t), Content: []llmkit.ContentPart{{Type: llmkit.ContentText, Text: "content"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !response.Flagged || response.ProviderRequestID != "mod_1" || len(response.Categories) != 2 || response.Categories[0].Name != "hate" || response.Usage.Source != llmkit.UsageUnavailable {
+		t.Fatalf("response=%#v", response)
+	}
+	conformance.RunModeration(t, conformance.ModerationCase{Name: "moderation_conformance", Moderator: newTestProvider(t), Call: llmkit.ModerateCall{Target: llmkit.Target{Provider: DefaultProviderID, Model: "omni-moderation-latest", Endpoint: server.URL}, Credential: bearerCredential(t), Content: []llmkit.ContentPart{{Type: llmkit.ContentText, Text: "content"}}}, Flagged: true, MinCategory: 2, UsageSource: llmkit.UsageUnavailable})
+}

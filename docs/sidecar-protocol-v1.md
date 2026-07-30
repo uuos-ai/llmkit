@@ -41,6 +41,7 @@ so a slow local consumer applies bounded backpressure to upstream `Recv`.
 - `health`
 - `shutdown`
 - `cancel`
+- `enroll_client` (local-service bootstrap only)
 - `list_capabilities`
 - `list_models`
 - `validate_credential`
@@ -49,6 +50,8 @@ so a slow local consumer applies bounded backpressure to upstream `Recv`.
 - `delete_custom_provider` (managed local-service only)
 - `generate` (unary and streaming)
 - `embed`
+- `rerank`
+- `moderate`
 
 `validate_credential` performs the provider's non-generation model discovery
 request (or model metadata request for Gemini). Success means that the
@@ -88,6 +91,7 @@ Tagged releases build all supported targets with SHA-256 checksums, SPDX JSON
 SBOMs, a machine-readable release manifest, and signed GitHub/Sigstore
 provenance and SBOM attestations. See `docs/sidecar-compatibility.md`.
 
-The dependency-free Rust framing/handshake example lives in
-`examples/rust-sidecar-client` and is intended for protocol smoke tests rather
-than as a production client library.
+The Rust crate in `examples/rust-sidecar-client` now exposes a reusable typed,
+bounded synchronous protocol client over any `Read + Write` transport, plus a
+Unix socket executable. Canonical JSON Schema and generated TypeScript/Python
+DTOs live under `schema/` and `sdk/`.

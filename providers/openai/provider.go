@@ -36,6 +36,9 @@ type Config struct {
 	APIPathPrefix string
 	DefaultAPI    API
 	Transport     *transport.Client
+	// ResolveURL maps logical OpenAI paths such as /v1/chat/completions to a
+	// provider-specific URL. It is used by profiles such as Azure OpenAI.
+	ResolveURL func(llmkit.Target, string) (string, error)
 }
 
 type Provider struct {
@@ -44,6 +47,7 @@ type Provider struct {
 	apiPathPrefix string
 	defaultAPI    API
 	transport     *transport.Client
+	resolveURL    func(llmkit.Target, string) (string, error)
 }
 
 func New(config Config) (*Provider, error) {
@@ -79,11 +83,18 @@ func New(config Config) (*Provider, error) {
 	}
 	return &Provider{
 		id: id, endpoint: endpoint, apiPathPrefix: pathPrefix,
-		defaultAPI: defaultAPI, transport: client,
+		defaultAPI: defaultAPI, transport: client, resolveURL: config.ResolveURL,
 	}, nil
 }
 
 func (p *Provider) ID() llmkit.ProviderID { return p.id }
+
+func (p *Provider) Manifest() llmkit.AdapterManifest {
+	return llmkit.AdapterManifest{ProviderID: p.id, AdapterVersion: "1.0.0", ProviderAPIVersion: "v1", Maturity: llmkit.AdapterConformant,
+		Operations:   []llmkit.Operation{llmkit.OperationGenerate, llmkit.OperationEmbed, llmkit.OperationModerate},
+		Capabilities: []llmkit.Capability{llmkit.CapabilityGenerate, llmkit.CapabilityStreaming, llmkit.CapabilityEmbedding, llmkit.CapabilityTools, llmkit.CapabilityStructured, llmkit.CapabilityVision, llmkit.CapabilityReasoning, llmkit.CapabilityModeration},
+		AuthSchemes:  []llmkit.AuthScheme{llmkit.AuthBearer}, Profile: "openai-native"}
+}
 
 func (p *Provider) Capabilities(_ context.Context, target llmkit.Target) (llmkit.Capabilities, error) {
 	if err := p.validateTarget(target); err != nil {
@@ -101,6 +112,7 @@ func (p *Provider) Capabilities(_ context.Context, target llmkit.Target) (llmkit
 					llmkit.CapabilityStructured,
 					llmkit.CapabilityVision,
 					llmkit.CapabilityReasoning,
+					llmkit.CapabilityModeration,
 				},
 			},
 		},
@@ -111,9 +123,13 @@ func (p *Provider) ValidateCredential(ctx context.Context, call llmkit.Credentia
 	if err := p.validateTarget(call.Target); err != nil {
 		return err
 	}
+	endpoint, err := p.urlFor(call.Target, "/v1/models")
+	if err != nil {
+		return invalidRequest(call.Target, "provider model endpoint is invalid")
+	}
 	request, err := transport.NewJSONRequest(
 		ctx, call.Target, call.Credential, http.MethodGet,
-		p.endpointFor(call.Target)+p.apiPathPrefix+"/models", nil, nil,
+		endpoint, nil, nil,
 	)
 	if err != nil {
 		return err
@@ -133,7 +149,11 @@ func (p *Provider) ListModels(ctx context.Context, call llmkit.ListModelsCall) (
 	if call.Limit < 0 || call.Limit > 1000 {
 		return llmkit.ModelPage{}, invalidRequest(call.Target, "model list limit must be between 1 and 1000")
 	}
-	endpoint, err := url.Parse(p.endpointFor(call.Target) + p.apiPathPrefix + "/models")
+	rawEndpoint, err := p.urlFor(call.Target, "/v1/models")
+	if err != nil {
+		return llmkit.ModelPage{}, invalidRequest(call.Target, "provider model endpoint is invalid")
+	}
+	endpoint, err := url.Parse(rawEndpoint)
 	if err != nil {
 		return llmkit.ModelPage{}, invalidRequest(call.Target, "provider model endpoint is invalid")
 	}
@@ -299,6 +319,13 @@ func (p *Provider) endpointFor(target llmkit.Target) string {
 	return p.endpoint
 }
 
+func (p *Provider) urlFor(target llmkit.Target, logicalPath string) (string, error) {
+	if p.resolveURL != nil {
+		return p.resolveURL(target, logicalPath)
+	}
+	return p.endpointFor(target) + p.apiPathPrefix + strings.TrimPrefix(logicalPath, "/v1"), nil
+}
+
 func (p *Provider) apiFor(request llmkit.GenerateRequest) (API, error) {
 	raw, ok := request.ProviderOptions[OptionAPI]
 	if !ok {
@@ -323,12 +350,16 @@ func (p *Provider) doJSON(
 	payload any,
 	destination any,
 ) (*http.Response, error) {
+	endpoint, err := p.urlFor(call.Target, path)
+	if err != nil {
+		return nil, invalidRequest(call.Target, "provider endpoint is invalid")
+	}
 	request, err := transport.NewJSONRequest(
 		ctx,
 		call.Target,
 		call.Credential,
 		http.MethodPost,
-		p.endpointFor(call.Target)+p.apiPathPrefix+strings.TrimPrefix(path, "/v1"),
+		endpoint,
 		payload,
 		nil,
 	)

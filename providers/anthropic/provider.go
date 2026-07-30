@@ -58,6 +58,13 @@ func New(config Config) (*Provider, error) {
 
 func (p *Provider) ID() llmkit.ProviderID { return p.id }
 
+func (p *Provider) Manifest() llmkit.AdapterManifest {
+	return llmkit.AdapterManifest{ProviderID: p.id, AdapterVersion: "1.0.0", ProviderAPIVersion: p.version, Maturity: llmkit.AdapterConformant,
+		Operations:   []llmkit.Operation{llmkit.OperationGenerate},
+		Capabilities: []llmkit.Capability{llmkit.CapabilityGenerate, llmkit.CapabilityStreaming, llmkit.CapabilityTools, llmkit.CapabilityStructured, llmkit.CapabilityVision, llmkit.CapabilityReasoning},
+		AuthSchemes:  []llmkit.AuthScheme{llmkit.AuthAPIKeyHeader}, Profile: "anthropic-messages"}
+}
+
 func (p *Provider) Capabilities(_ context.Context, target llmkit.Target) (llmkit.Capabilities, error) {
 	if err := p.validateTarget(target); err != nil {
 		return llmkit.Capabilities{}, err

@@ -53,6 +53,13 @@ func New(config Config) (*Provider, error) {
 
 func (p *Provider) ID() llmkit.ProviderID { return p.id }
 
+func (p *Provider) Manifest() llmkit.AdapterManifest {
+	return llmkit.AdapterManifest{ProviderID: p.id, AdapterVersion: "1.0.0", ProviderAPIVersion: "openai-compatible-v1", Maturity: llmkit.AdapterConformant,
+		Operations:   []llmkit.Operation{llmkit.OperationGenerate, llmkit.OperationEmbed},
+		Capabilities: []llmkit.Capability{llmkit.CapabilityGenerate, llmkit.CapabilityStreaming, llmkit.CapabilityEmbedding, llmkit.CapabilityTools, llmkit.CapabilityStructured, llmkit.CapabilityVision, llmkit.CapabilityReasoning},
+		AuthSchemes:  []llmkit.AuthScheme{llmkit.AuthBearer}, Profile: "dashscope-qwen"}
+}
+
 func (p *Provider) Capabilities(_ context.Context, target llmkit.Target) (llmkit.Capabilities, error) {
 	if target.Provider != p.id || target.Model == "" {
 		return llmkit.Capabilities{}, invalidTarget(target)

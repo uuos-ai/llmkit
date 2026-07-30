@@ -119,6 +119,54 @@ func RunError(t *testing.T, testCase ErrorCase) {
 	})
 }
 
+type RerankCase struct {
+	Name          string
+	Reranker      llmkit.Reranker
+	Call          llmkit.RerankCall
+	ExpectedCount int
+	UsageSource   llmkit.UsageSource
+}
+
+func RunRerank(t *testing.T, testCase RerankCase) {
+	t.Helper()
+	t.Run(testCase.Name, func(t *testing.T) {
+		response, err := testCase.Reranker.Rerank(context.Background(), testCase.Call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(response.Results) != testCase.ExpectedCount || response.Usage.Source != testCase.UsageSource {
+			t.Fatalf("unexpected rerank response: %#v", response)
+		}
+		for _, result := range response.Results {
+			if result.Index < 0 || result.Index >= len(testCase.Call.Documents) {
+				t.Fatalf("invalid result index: %#v", result)
+			}
+		}
+	})
+}
+
+type ModerationCase struct {
+	Name        string
+	Moderator   llmkit.Moderator
+	Call        llmkit.ModerateCall
+	Flagged     bool
+	MinCategory int
+	UsageSource llmkit.UsageSource
+}
+
+func RunModeration(t *testing.T, testCase ModerationCase) {
+	t.Helper()
+	t.Run(testCase.Name, func(t *testing.T) {
+		response, err := testCase.Moderator.Moderate(context.Background(), testCase.Call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.Flagged != testCase.Flagged || len(response.Categories) < testCase.MinCategory || response.Usage.Source != testCase.UsageSource {
+			t.Fatalf("unexpected moderation response: %#v", response)
+		}
+	})
+}
+
 func textContent(message llmkit.Message) string {
 	var result string
 	for _, part := range message.Parts {

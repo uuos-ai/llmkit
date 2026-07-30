@@ -29,6 +29,8 @@ const (
 	CapabilityVision     Capability = "vision"
 	CapabilityAudio      Capability = "audio"
 	CapabilityReasoning  Capability = "reasoning"
+	CapabilityRerank     Capability = "rerank"
+	CapabilityModeration Capability = "moderation"
 )
 
 type ModelCapabilities struct {

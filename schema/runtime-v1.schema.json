@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/uuos-ai/llmkit/schema/runtime-v1.schema.json",
+  "title": "llmkit Runtime API v1",
+  "type": "object",
+  "$defs": {
+    "Target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model"],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "region": {"type": "string"},
+        "endpoint": {"type": "string", "format": "uri"}
+      }
+    },
+    "AvailableTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "target", "capabilities"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "target": {"$ref": "#/$defs/Target"},
+        "owner_scope": {"enum": ["business", "client", "user"]},
+        "credential_mode": {"enum": ["managed", "request_scoped", "workload", "none"]},
+        "capabilities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "AvailableTargetList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "generated_at", "default_target_id", "targets"],
+      "properties": {
+        "revision": {"type": "string"},
+        "binding_version": {"type": "integer", "minimum": 0},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "refresh_after": {"type": "string", "format": "date-time"},
+        "stale_until": {"type": "string", "format": "date-time"},
+        "default_target_id": {"type": "string"},
+        "targets": {"type": "array", "items": {"$ref": "#/$defs/AvailableTarget"}}
+      }
+    },
+    "TokenPair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["access_token", "refresh_token", "access_expires_at", "family_expires_at"],
+      "properties": {
+        "access_token": {"type": "string", "writeOnly": true},
+        "refresh_token": {"type": "string", "writeOnly": true},
+        "access_expires_at": {"type": "string", "format": "date-time"},
+        "family_expires_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "Usage": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": {"enum": ["missing", "provider_reported", "derived", "estimated", "unavailable"]},
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "total_tokens": {"type": "integer", "minimum": 0},
+        "cached_read": {"type": "integer", "minimum": 0},
+        "cached_write": {"type": "integer", "minimum": 0},
+        "reasoning_tokens": {"type": "integer", "minimum": 0}
+      }
+    },
+    "APIError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "message"],
+      "properties": {
+        "kind": {"type": "string"},
+        "message": {"type": "string"},
+        "retryable": {"type": "boolean"},
+        "retry_after_ms": {"type": "integer", "minimum": 0},
+        "status_code": {"type": "integer", "minimum": 0},
+        "provider_code": {"type": "string"},
+        "provider_request_id": {"type": "string"}
+      }
+    },
+    "StreamEvent": {
+      "type": "object",
+      "required": ["type", "request_id", "response_id", "sequence"],
+      "properties": {
+        "type": {"enum": ["response.created", "output_item.added", "content_part.added", "content.delta", "tool_call.arguments.delta", "usage.updated", "content_part.done", "output_item.done", "response.completed", "response.failed", "response.cancelled"]},
+        "request_id": {"type": "string"},
+        "response_id": {"type": "string"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "target_id": {"type": "string"},
+        "index": {"type": "integer", "minimum": 0},
+        "text": {"type": "string"},
+        "arguments_delta": {"type": "string", "contentEncoding": "base64"},
+        "usage": {"$ref": "#/$defs/Usage"},
+        "finish_reason": {"type": "string"},
+        "error": {"$ref": "#/$defs/APIError"}
+      }
+    }
+  }
+}

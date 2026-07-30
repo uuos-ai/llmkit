@@ -48,6 +48,12 @@ func New(config Config) (*Provider, error) {
 
 func (p *Provider) ID() llmkit.ProviderID { return p.id }
 
+func (p *Provider) Manifest() llmkit.AdapterManifest {
+	return llmkit.AdapterManifest{ProviderID: p.id, AdapterVersion: "1.0.0", ProviderAPIVersion: "openai-compatible", Maturity: llmkit.AdapterConformant,
+		Operations: []llmkit.Operation{llmkit.OperationGenerate}, Capabilities: []llmkit.Capability{llmkit.CapabilityGenerate, llmkit.CapabilityStreaming, llmkit.CapabilityTools, llmkit.CapabilityStructured, llmkit.CapabilityReasoning},
+		AuthSchemes: []llmkit.AuthScheme{llmkit.AuthBearer}, Profile: "deepseek-chat"}
+}
+
 func (p *Provider) Capabilities(_ context.Context, target llmkit.Target) (llmkit.Capabilities, error) {
 	if target.Provider != p.id || target.Model == "" {
 		return llmkit.Capabilities{}, invalidTarget(target)

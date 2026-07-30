@@ -21,12 +21,16 @@ func (p *Provider) openStream(
 	path string,
 	payload any,
 ) (*http.Response, error) {
+	endpoint, err := p.urlFor(call.Target, path)
+	if err != nil {
+		return nil, invalidRequest(call.Target, "provider endpoint is invalid")
+	}
 	request, err := transport.NewJSONRequest(
 		ctx,
 		call.Target,
 		call.Credential,
 		http.MethodPost,
-		p.endpointFor(call.Target)+path,
+		endpoint,
 		payload,
 		nil,
 	)

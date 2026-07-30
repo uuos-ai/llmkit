@@ -44,8 +44,14 @@ Provider 覆盖规划：
 - Alibaba Cloud DashScope / Qwen OpenAI-compatible（已实现）
 - MiniMax、Zhipu GLM、Volcengine Ark、Tencent Hunyuan profiles（已实现）
 - Moonshot/Kimi Chat（已实现）
+- Tencent TokenHub、Baidu Qianfan、SiliconFlow（含 rerank）（已实现）
+- Azure OpenAI v1、Amazon Bedrock Mantle、Vertex AI OpenAI-compatible profiles（已实现，要求显式 endpoint）
+- OpenAI Moderation（已实现）
 
 优先能力：Chat、Responses、Embedding、流式输出、Tool Calling、Structured Output 和可信 usage。
+
+语言交付物包括 Go 核心、typed Rust IPC client，以及从
+`schema/runtime-v1.schema.json` 对齐的 TypeScript/Python DTO。
 
 ## 当前状态
 

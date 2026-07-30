@@ -10,17 +10,24 @@ import (
 )
 
 type Config struct {
-	ID           llmkit.ProviderID
-	Endpoint     string
-	DefaultAPI   openai.API
-	Capabilities []llmkit.Capability
-	Transport    *transport.Client
+	ID                    llmkit.ProviderID
+	Endpoint              string
+	DefaultAPI            openai.API
+	Capabilities          []llmkit.Capability
+	Transport             *transport.Client
+	Profile               string
+	APIVersion            string
+	AuthSchemes           []llmkit.AuthScheme
+	RequireTargetEndpoint bool
 }
 
 type ChatProvider struct {
-	id           llmkit.ProviderID
-	capabilities []llmkit.Capability
-	delegate     *openai.Provider
+	id                    llmkit.ProviderID
+	capabilities          []llmkit.Capability
+	delegate              *openai.Provider
+	profile, apiVersion   string
+	authSchemes           []llmkit.AuthScheme
+	requireTargetEndpoint bool
 }
 
 func NewChat(config Config) (*ChatProvider, error) {
@@ -38,13 +45,32 @@ func NewChat(config Config) (*ChatProvider, error) {
 	if err != nil {
 		return nil, err
 	}
+	profile, apiVersion := config.Profile, config.APIVersion
+	if profile == "" {
+		profile = string(config.ID)
+	}
+	if apiVersion == "" {
+		apiVersion = "openai-compatible"
+	}
+	authSchemes := append([]llmkit.AuthScheme(nil), config.AuthSchemes...)
+	if len(authSchemes) == 0 {
+		authSchemes = []llmkit.AuthScheme{llmkit.AuthBearer}
+	}
 	return &ChatProvider{
 		id: config.ID, capabilities: append([]llmkit.Capability(nil), config.Capabilities...),
-		delegate: delegate,
+		delegate: delegate, profile: profile, apiVersion: apiVersion, authSchemes: authSchemes, requireTargetEndpoint: config.RequireTargetEndpoint,
 	}, nil
 }
 
 func (p *ChatProvider) ID() llmkit.ProviderID { return p.id }
+
+func (p *ChatProvider) Manifest() llmkit.AdapterManifest {
+	return llmkit.AdapterManifest{
+		ProviderID: p.id, AdapterVersion: "1.0.0", ProviderAPIVersion: p.apiVersion,
+		Maturity: llmkit.AdapterConformant, Operations: []llmkit.Operation{llmkit.OperationGenerate},
+		Capabilities: append([]llmkit.Capability(nil), p.capabilities...), AuthSchemes: append([]llmkit.AuthScheme(nil), p.authSchemes...), Profile: p.profile,
+	}
+}
 
 func (p *ChatProvider) Capabilities(_ context.Context, target llmkit.Target) (llmkit.Capabilities, error) {
 	if err := p.validateTarget(target); err != nil {
@@ -97,10 +123,19 @@ func (p *ChatProvider) validateTarget(target llmkit.Target) error {
 	if target.Provider != p.id || target.Model == "" {
 		return invalid(target, "target does not match provider profile")
 	}
+	if p.requireTargetEndpoint && target.Endpoint == "" {
+		return invalid(target, "target endpoint is required for this provider profile")
+	}
 	return nil
 }
 
 type FullProvider struct{ *ChatProvider }
+
+func (p *FullProvider) Manifest() llmkit.AdapterManifest {
+	manifest := p.ChatProvider.Manifest()
+	manifest.Operations = append(manifest.Operations, llmkit.OperationEmbed)
+	return manifest
+}
 
 func NewFull(config Config) (*FullProvider, error) {
 	provider, err := NewChat(config)
@@ -128,4 +163,5 @@ var _ llmkit.Generator = (*ChatProvider)(nil)
 var _ llmkit.StreamGenerator = (*ChatProvider)(nil)
 var _ llmkit.CredentialValidator = (*ChatProvider)(nil)
 var _ llmkit.ModelLister = (*ChatProvider)(nil)
+var _ llmkit.ManifestProvider = (*ChatProvider)(nil)
 var _ llmkit.Embedder = (*FullProvider)(nil)

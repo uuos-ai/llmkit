@@ -16,13 +16,13 @@
 ## Remaining delivery work
 
 - [x] T011 增加原生 rerank/moderate interfaces、IPC 与 gateway handlers
-- [ ] T011A [P1] 增加首个 rerank/moderate Provider adapter 与 conformance fixtures
+- [x] T011A [P1] 增加首个 rerank/moderate Provider adapter 与 conformance fixtures
 - [x] T012 [P1] 完成 OpenAI chat/responses/embeddings HTTP compatibility handlers
 - [x] T013 将 gateway data/control handler 接入独立生产 listener
 - [x] T014 [P1] 实现外部 SessionStore/UserBindingStore/RateLimitStore HTTP adapters
 - [x] T015 实现 bounded blob upload/store 与 client/user/binding 隔离测试
 - [x] T016 [P1] 实现 local enrollment 与 gateway OIDC exchange endpoints
-- [ ] T017 [P1] 为所有 P0 Provider 补齐成熟度 manifest 与完整统一 conformance matrix
-- [ ] T018 [P1] 完成 Qianfan/SiliconFlow/Azure/Bedrock/Vertex P1 adapters
-- [ ] T019 [P1] 扩展 Rust client；生成 TypeScript/Python schema DTO
+- [x] T017 [P1] 为所有 P0 Provider 补齐成熟度 manifest 与完整统一 conformance matrix
+- [x] T018 [P1] 完成 Qianfan/SiliconFlow/Azure/Bedrock/Vertex P1 adapters
+- [x] T019 [P1] 扩展 Rust client；生成 TypeScript/Python schema DTO
 - [ ] T020 [P1] 完整 race、跨平台、secret leak、SSRF/DNS rebinding 与升级测试

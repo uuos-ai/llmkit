@@ -4,6 +4,8 @@ package all
 import (
 	"github.com/uuos-ai/llmkit"
 	"github.com/uuos-ai/llmkit/providers/anthropic"
+	"github.com/uuos-ai/llmkit/providers/azure"
+	"github.com/uuos-ai/llmkit/providers/bedrock"
 	"github.com/uuos-ai/llmkit/providers/dashscope"
 	"github.com/uuos-ai/llmkit/providers/deepseek"
 	"github.com/uuos-ai/llmkit/providers/gemini"
@@ -11,7 +13,10 @@ import (
 	"github.com/uuos-ai/llmkit/providers/minimax"
 	"github.com/uuos-ai/llmkit/providers/moonshot"
 	"github.com/uuos-ai/llmkit/providers/openai"
+	"github.com/uuos-ai/llmkit/providers/qianfan"
+	"github.com/uuos-ai/llmkit/providers/siliconflow"
 	"github.com/uuos-ai/llmkit/providers/tokenhub"
+	"github.com/uuos-ai/llmkit/providers/vertex"
 	"github.com/uuos-ai/llmkit/providers/volcengine"
 	"github.com/uuos-ai/llmkit/providers/zhipu"
 )
@@ -30,6 +35,11 @@ func NewRegistry() (*llmkit.Registry, error) {
 		func() (llmkit.Provider, error) { return hunyuan.New(hunyuan.Config{}) },
 		func() (llmkit.Provider, error) { return moonshot.New(moonshot.Config{}) },
 		func() (llmkit.Provider, error) { return tokenhub.New(tokenhub.Config{}) },
+		func() (llmkit.Provider, error) { return qianfan.New(qianfan.Config{}) },
+		func() (llmkit.Provider, error) { return siliconflow.New(siliconflow.Config{}) },
+		func() (llmkit.Provider, error) { return azure.New(azure.Config{}) },
+		func() (llmkit.Provider, error) { return bedrock.New(bedrock.Config{}) },
+		func() (llmkit.Provider, error) { return vertex.New(vertex.Config{}) },
 	}
 	for _, construct := range constructors {
 		provider, err := construct()

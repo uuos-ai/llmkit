@@ -19,6 +19,13 @@ Status values:
 | Moonshot/Kimi Chat | Tested | Tested codec | Not exposed | Tested codec | Tested codec | Tested codec | Tested | Tested via shared codec |
 | MiniMax Chat | Tested | Tested codec | Not exposed | Tested codec | Not declared | Tested codec | Tested | Tested via shared codec |
 | Tencent Hunyuan Chat/Embedding | Tested codec | Tested codec | Tested | Tested codec | Not declared | Not declared | Tested codec | Tested via shared codec |
+| Tencent TokenHub Chat | Tested | Tested | Not exposed | Not declared | Not declared | Not declared | Tested | Tested via shared codec |
+| Baidu Qianfan v2 | Tested | Tested codec | Tested codec | Tested codec | Tested codec | Tested codec | Tested codec | Tested via shared codec |
+| SiliconFlow Chat/Embedding/Rerank | Tested codec | Tested codec | Tested codec | Tested codec | Tested codec | Tested codec | Tested rerank fixture | Tested |
+| Azure OpenAI v1 | Tested profile | Tested profile | Tested profile | Tested profile | Tested profile | Tested profile | Tested codec | Tested via shared codec |
+| Amazon Bedrock Mantle | Tested profile | Tested profile | Not exposed | Tested profile | Tested profile | Tested profile | Tested codec | Tested via shared codec |
+| Vertex AI OpenAI-compatible | Tested profile | Tested profile | Not exposed | Tested profile | Tested profile | Tested profile | Tested codec | Tested via shared codec |
+| OpenAI Moderation | Not applicable | Not applicable | Not applicable | Not applicable | Not applicable | Not applicable | Unavailable by protocol | Tested moderation fixture |
 
 All listed providers implement request-scoped credential validation and remote
 model enumeration. OpenAI-compatible profiles use their dedicated compatible
@@ -27,6 +34,17 @@ model endpoint; Anthropic and Gemini use their native paginated model APIs.
 “Tested codec” currently means request/response fields are encoded or decoded
 by the provider adapter. Dedicated end-to-end tool-call and structured-output fixture cases
 remain required before the whole capability is declared fully Tested.
+
+Every built-in adapter exposes a validated `AdapterManifest` with provider API
+version, operations, capabilities, auth schemes, profile, and maturity. P0
+adapters are `conformant`; `verified` is reserved for a dated live-provider
+verification record and is never inferred from offline fixtures.
+
+Azure, Bedrock, and Vertex profiles require an explicit authorized target
+endpoint. They do not fall back to an executable placeholder. The profiles
+follow the vendors' OpenAI-compatible surfaces: Azure OpenAI v1, Bedrock
+Mantle, and Vertex AI Chat Completions. Workload credentials remain
+request-scoped `CredentialHandle` implementations owned by the host.
 
 ## OpenAI protocol notes
 
