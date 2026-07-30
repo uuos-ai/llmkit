@@ -1,6 +1,9 @@
 package protocol
 
-import "github.com/uuos-ai/llmkit"
+import (
+	"github.com/uuos-ai/llmkit"
+	"github.com/uuos-ai/llmkit/routing"
+)
 
 type Credential struct {
 	Type   string `json:"type"`
@@ -9,10 +12,12 @@ type Credential struct {
 }
 
 type CapabilitiesRequest struct {
-	Target llmkit.Target `json:"target"`
+	TargetID string        `json:"target_id,omitempty"`
+	Target   llmkit.Target `json:"target"`
 }
 
 type ValidateCredentialRequest struct {
+	TargetID   string        `json:"target_id,omitempty"`
 	Target     llmkit.Target `json:"target"`
 	Credential Credential    `json:"credential"`
 }
@@ -22,6 +27,7 @@ type ValidateCredentialResponse struct {
 }
 
 type ListModelsRequest struct {
+	TargetID   string        `json:"target_id,omitempty"`
 	Target     llmkit.Target `json:"target"`
 	Credential Credential    `json:"credential"`
 	Cursor     string        `json:"cursor,omitempty"`
@@ -30,6 +36,7 @@ type ListModelsRequest struct {
 
 type GenerateRequest struct {
 	OperationID string                 `json:"operation_id,omitempty"`
+	TargetID    string                 `json:"target_id,omitempty"`
 	Target      llmkit.Target          `json:"target"`
 	Credential  Credential             `json:"credential"`
 	Request     llmkit.GenerateRequest `json:"request"`
@@ -38,8 +45,12 @@ type GenerateRequest struct {
 
 type EmbedRequest struct {
 	OperationID string        `json:"operation_id,omitempty"`
+	TargetID    string        `json:"target_id,omitempty"`
 	Target      llmkit.Target `json:"target"`
 	Credential  Credential    `json:"credential"`
 	Input       []string      `json:"input"`
 	Dimensions  *int          `json:"dimensions,omitempty"`
 }
+
+type ResolveProviderOptionsRequest = routing.OptionsRequest
+type ResolveProviderOptionsResponse = routing.OptionsResponse

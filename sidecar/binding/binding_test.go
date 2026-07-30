@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/uuos-ai/llmkit"
+	"github.com/uuos-ai/llmkit/identity"
+	"github.com/uuos-ai/llmkit/routing"
 	"github.com/uuos-ai/llmkit/sidecar/protocol"
 	"github.com/uuos-ai/llmkit/sidecar/server"
 )
@@ -195,5 +197,31 @@ func TestStreamingUsesBackpressuredEventSequence(t *testing.T) {
 	if len(emitter.events) != 2 || emitter.events[0].Text != "hello" ||
 		emitter.events[1].FinishReason != llmkit.FinishStop {
 		t.Fatalf("events = %#v", emitter.events)
+	}
+}
+
+func TestTargetIDUsesClientCatalogAndDynamicDefault(t *testing.T) {
+	binding, provider := testBinder(t)
+	principal := identity.Principal{TenantID: "tenant", ClientID: "client"}
+	routes := routing.NewSessionCatalog(routing.SourceFunc(func(context.Context, identity.Principal) (routing.OptionsResponse, error) {
+		return routing.OptionsResponse{DefaultTargetID: "dynamic", Providers: []routing.ProviderOption{{
+			ID: "business", Source: routing.SourceBusiness, Targets: []routing.TargetOption{{
+				ID: "dynamic", Target: llmkit.Target{Provider: "fake", Model: "resolved"},
+			}},
+		}}}, nil
+	}))
+	ctx := identity.WithPrincipal(context.Background(), principal)
+	if _, err := routes.Refresh(ctx, principal, routing.OptionsRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	binding.routes = routes
+	payload, _ := json.Marshal(protocol.GenerateRequest{
+		Credential: protocol.Credential{Type: "bearer", Value: []byte("routed-secret")},
+	})
+	if _, err := binding.generate(ctx, payload); err != nil {
+		t.Fatal(err)
+	}
+	if provider.header != "Bearer routed-secret" {
+		t.Fatalf("header = %q", provider.header)
 	}
 }

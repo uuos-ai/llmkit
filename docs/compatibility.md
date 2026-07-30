@@ -36,3 +36,21 @@ the new-api, RelayKit, and TokenHub analysis.
 No released version used the replaced draft, so no deprecation window is
 required. Future released public API changes require versioned compatibility
 notes and tests.
+
+## Unreleased additive change: routing, identity, and deployment ports
+
+The accepted `llmkitd` baseline adds packages without changing Provider adapter
+interfaces:
+
+- `identity`: token-to-tenant/client authentication and context propagation;
+- `routing`: unified business/custom catalogs, dynamic defaults, isolated
+  session views, and caller-triggered client cache replacement;
+- `managed`: external ConfigStore, SecretStore, AuditStore, and custom-provider
+  synchronization ports;
+- `gateway`: normalized HTTPS JSON/SSE transport;
+- `runtimeconfig`: strict three-mode startup configuration.
+
+IPC v1 adds optional handshake identity/instance fields, optional `target_id`
+fields, and `resolve_provider_options`. Existing explicit raw-target sidecar
+calls remain valid. The legacy `llmkit-sidecar` command remains buildable;
+release artifacts move to the three-mode `llmkitd` binary before v1.0.

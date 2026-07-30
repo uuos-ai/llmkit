@@ -1,12 +1,12 @@
-# llmkit-sidecar compatibility matrix
+# llmkitd compatibility matrix
 
-The Go module and sidecar are built from the same release tag. A release
+The Go module and `llmkitd` are built from the same release tag. A release
 manifest records both versions, the source commit, the supported IPC range,
 and SHA-256 digests for every binary archive and SBOM.
 
-| Sidecar release | IPC versions | Host compatibility | Platforms |
+| llmkitd release | IPC versions | Modes | Platforms |
 |---|---|---|---|
-| Unreleased baseline | 1.0 | Hosts that negotiate exactly 1.0 | macOS arm64/amd64, Windows amd64, Linux amd64 |
+| Unreleased baseline | 1.0 | sidecar, local-service, gateway | macOS arm64/amd64, Windows amd64, Linux amd64 |
 
 Protocol `1.0` uses additive optional fields within the same major version.
 Breaking field semantics, framing, authentication, or event-order changes

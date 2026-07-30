@@ -7,15 +7,15 @@ Status: implementation baseline (`1.0`).
 - macOS/Linux use an absolute Unix domain socket path created with mode `0600`.
 - Windows uses a local `\\.\pipe\NAME` named pipe whose ACL grants access only
   to the user running the sidecar. Remote pipe clients are rejected.
-- The host passes a random session key of at least 32 bytes through sidecar
+- Sidecar mode passes a random session key of at least 32 bytes through
   standard input, terminated by one newline. The key is not accepted through a
   flag, environment variable, or file.
 - Every message is one four-byte unsigned big-endian length followed by a UTF-8
   JSON object. The default maximum frame is 8 MiB. Zero, oversized, truncated,
   and malformed frames fail closed.
 - The first request on each connection must be an authenticated `handshake`.
-  Every later request repeats the current process session key and protocol
-  version. Authentication comparisons use constant-time comparison.
+  Every later request repeats the current token and protocol version.
+  Local-service maps each token hash to a trusted tenant/client identity.
 
 ## Envelope
 
@@ -44,6 +44,7 @@ so a slow local consumer applies bounded backpressure to upstream `Recv`.
 - `list_capabilities`
 - `list_models`
 - `validate_credential`
+- `resolve_provider_options`
 - `generate` (unary and streaming)
 - `embed`
 
@@ -64,14 +65,23 @@ explicit allowlisted authentication header (`Authorization`, `x-api-key`, or
 `x-goog-api-key`). Credential values are byte arrays in the JSON protocol and
 temporary Go buffers are cleared after use.
 
+`resolve_provider_options` returns business built-ins plus client-local custom
+Provider/target combinations, the current `default_target_id`, a `revision`,
+and `generated_at`. In disabled-sync mode the request may carry non-secret
+`local_custom_providers` (A2); they remain only in that client's in-memory
+view. Later calls may provide strict `target_id`; omission uses the default
+from that client's latest refresh.
+
 Custom Provider endpoints are denied unless the embedding host installs an
-explicit `EndpointPolicy`. The standalone binary installs no custom endpoint
-policy and therefore uses only adapter-owned official defaults.
+explicit `EndpointPolicy`. `llmkitd` installs a public-HTTPS policy; embedding
+hosts should replace it with a business allowlist. The legacy
+`llmkit-sidecar` command continues to deny custom endpoints.
 
 ## Current platform boundary
 
-The command implements Unix-domain-socket and Windows named-pipe runtimes,
-requires a host `--parent-pid`, and exits when that process disappears.
+`llmkitd` implements Unix-domain-socket and Windows named-pipe runtimes.
+Sidecar mode requires a host `--parent-pid` and exits with that process;
+local-service remains resident for multiple isolated clients.
 Tagged releases build all supported targets with SHA-256 checksums, SPDX JSON
 SBOMs, a machine-readable release manifest, and signed GitHub/Sigstore
 provenance and SBOM attestations. See `docs/sidecar-compatibility.md`.

@@ -4,7 +4,7 @@
 
 ## 定位
 
-`llmkit` 的核心是 SDK，不是 AI 网关产品，也不拥有宿主应用的用户、支付、额度、路由政策或数据库。对于 Rust、Swift、Kotlin 等非 Go 宿主，项目同时提供可选的本地 `llmkit-sidecar`，把同一套 SDK 能力通过受保护的版本化 IPC 暴露给宿主。
+`llmkit` 的核心仍是 SDK，不拥有业务应用的用户、支付、额度、价格或授权政策。统一守护进程 `llmkitd` 把同一套 Provider 能力暴露为三种可切换部署模式：默认 sidecar、本机多客户端服务、远程 HTTPS 网关。网关只是传输与 Provider 执行边界，业务目录、动态默认值、密钥和审计仍由业务平台拥有。
 
 ```text
 Host Application
@@ -16,19 +16,22 @@ Host Application
     ├── HTTP and SSE transport
     ├── normalized errors and usage
     ├── capability discovery
-    └── optional local sidecar for non-Go hosts
+    └── optional llmkitd
+        ├── sidecar (default, one host)
+        ├── local-service (isolated clients)
+        └── gateway (HTTPS JSON + SSE)
 ```
 
 ## 设计原则
 
 - Provider-neutral：统一能力，不泄漏单一供应商类型到业务层。
-- Embeddable：普通 Go module，无 HTTP Server、数据库或管理后台依赖。
+- Embeddable：核心是普通 Go module；HTTP gateway、存储接口和本地 IPC 位于可选包与命令中。
 - Host-owned policy：SDK 不替宿主决定用户权限、跨区域同意、价格和最终路由。
 - Explicit behavior：重试、故障转移、超时和流式终止由显式配置控制。
 - Auditable：每次调用返回 Provider、模型、attempt、usage 和标准化错误。
 - Replaceable：协议转换、Transport 和 Provider 实现均可替换。
 - Permissive licensing：项目采用 Apache-2.0，不复制 AGPL 项目代码。
-- One implementation：Go module 与 sidecar 使用相同核心包和版本，不形成第二套 Provider 实现。
+- One implementation：Go module 与 `llmkitd` 使用相同核心包和版本，不形成第二套 Provider 实现。
 
 ## 初始范围
 
@@ -46,7 +49,7 @@ Provider 覆盖规划：
 
 ## 当前状态
 
-项目已完成首批 Provider SDK 与 sidecar 协议基线。当前包括类型化
+项目已完成首批 Provider SDK、统一 `llmkitd` 三模式运行时与本地协议基线。当前包括类型化
 Provider/Registry API、请求级凭据、凭据验证、HTTP Transport、SSE parser、
 显式同目标 retry、conformance harness，以及国内外首批 Provider 的独立
 离线协议合同测试。
@@ -54,6 +57,7 @@ Provider/Registry API、请求级凭据、凭据验证、HTTP Transport、SSE pa
 - [分析索引](./docs/README.md)
 - [new-api relay/relaykit 分析](./docs/research/new-api-relay-relaykit-analysis.md)
 - [SDK 架构边界](./docs/architecture/provider-sdk-boundary.md)
+- [llmkitd 三种部署模式与动态目录](./docs/architecture/deployment-modes.md)
 - [llmkit-sidecar 需求](./docs/architecture/sidecar-requirements.md)
 - [llmkit-sidecar protocol v1](./docs/sidecar-protocol-v1.md)
 - [llmkit-sidecar 兼容矩阵](./docs/sidecar-compatibility.md)

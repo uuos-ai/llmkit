@@ -10,7 +10,7 @@
 - [x] 建立 CI、format、vet、race、coverage 和 dependency review
 - [x] 建立 Provider SDK 边界 ADR
 - [x] 建立 release workflow
-- [ ] 批准 llmkit-sidecar IPC、安全、兼容和发布需求基线
+- [x] 批准 llmkitd IPC、安全、兼容和发布需求基线
 
 ## Phase 1：协议与 Transport
 
@@ -55,3 +55,15 @@
 - [x] 建立 macOS arm64/amd64、Windows amd64 和 Linux amd64 构建
 - [x] 发布 Sigstore/GitHub attestations、checksums、SBOM 和 release manifest
 - [x] 完成自动化安全、fuzz、race、协议兼容及本地进程端到端测试
+
+## Phase 6：统一 llmkitd 部署运行时
+
+- [x] 单一 `llmkitd` 二进制支持 sidecar、local-service、gateway
+- [x] 配置优先级：默认值 < 严格 YAML/JSON < 环境变量 < CLI
+- [x] `instance_id` + 独立 socket/listen 支持同机多实例；兼容 OS 用户与容器隔离
+- [x] 每客户端 token 映射可信 tenant/client，目录快照按客户端隔离
+- [x] 动态 Provider API 合并业务内置项与 A2 客户端本地自定义项
+- [x] 显式 `target_id` 严格解析，省略时采用最新目录默认值
+- [x] disabled 与 managed 两种自定义 Provider 同步模式；gateway 强制 managed
+- [x] gateway HTTPS JSON/SSE 与外部 ConfigStore、SecretStore、AuditStore
+- [x] 默认不持久化 prompt/response，凭据保持请求级或 Vault/KMS 引用

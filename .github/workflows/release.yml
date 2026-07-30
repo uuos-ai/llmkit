@@ -30,7 +30,7 @@ jobs:
           go test -race ./...
           go build ./...
 
-  build-sidecar:
+  build-llmkitd:
     needs: verify
     runs-on: ubuntu-latest
     permissions:
@@ -55,14 +55,14 @@ jobs:
             goarch: amd64
             format: tar
     env:
-      ARTIFACT_BASE: llmkit-sidecar_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}
+      ARTIFACT_BASE: llmkitd_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
-      - name: Build sidecar
+      - name: Build llmkitd
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -73,18 +73,18 @@ jobs:
           if [[ "${GOOS}" == "windows" ]]; then suffix=".exe"; fi
           go build -trimpath \
             -ldflags "-s -w -X main.version=${GITHUB_REF_NAME} -X main.llmkitVersion=${GITHUB_REF_NAME} -X main.buildID=${GITHUB_SHA}" \
-            -o "dist/package/llmkit-sidecar${suffix}" ./cmd/llmkit-sidecar
-      - name: Package sidecar
+            -o "dist/package/llmkitd${suffix}" ./cmd/llmkitd
+      - name: Package llmkitd
         run: |
           if [[ "${{ matrix.format }}" == "zip" ]]; then
-            (cd dist/package && zip -9 "../${ARTIFACT_BASE}.zip" llmkit-sidecar.exe)
+            (cd dist/package && zip -9 "../${ARTIFACT_BASE}.zip" llmkitd.exe)
           else
-            tar -C dist/package -czf "dist/${ARTIFACT_BASE}.tar.gz" llmkit-sidecar
+            tar -C dist/package -czf "dist/${ARTIFACT_BASE}.tar.gz" llmkitd
           fi
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
-          file: dist/package/llmkit-sidecar${{ matrix.goos == 'windows' && '.exe' || '' }}
+          file: dist/package/llmkitd${{ matrix.goos == 'windows' && '.exe' || '' }}
           format: spdx-json
           output-file: dist/${{ env.ARTIFACT_BASE }}.spdx.json
           upload-artifact: false
@@ -108,7 +108,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build-sidecar
+    needs: build-llmkitd
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -120,13 +120,13 @@ jobs:
       - name: Download release inputs
         uses: actions/download-artifact@v7
         with:
-          pattern: llmkit-sidecar_*
+          pattern: llmkitd_*
           path: dist
           merge-multiple: true
       - name: Create checksums and release manifest
         run: |
           cd dist
-          sha256sum llmkit-sidecar_* > checksums.txt
+          sha256sum llmkitd_* > checksums.txt
           jq -Rn \
             --arg release "${GITHUB_REF_NAME}" \
             --arg commit "${GITHUB_SHA}" \
@@ -136,7 +136,7 @@ jobs:
               release: $release,
               source_commit: $commit,
               go_module: ("github.com/uuos-ai/llmkit@" + $release),
-              sidecar: {version: $release, protocol: {minimum: "1.0", maximum: "1.0"}},
+              llmkitd: {version: $release, modes: ["sidecar", "local-service", "gateway"], protocol: {minimum: "1.0", maximum: "1.0"}},
               artifacts: $artifacts
             }' < checksums.txt > release-manifest.json
           sha256sum release-manifest.json >> checksums.txt

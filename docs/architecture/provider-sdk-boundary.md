@@ -57,7 +57,10 @@ llmkit
 ├── provider.go              stable host-facing API
 ├── registry.go              explicit adapter registration
 ├── errors.go                normalized error taxonomy
-├── cmd/llmkit-sidecar/       optional local IPC adapter for non-Go hosts
+├── cmd/llmkitd/              optional three-mode transport runtime
+├── gateway/                  HTTPS JSON/SSE adapter with injected stores
+├── routing/                  non-secret provider/target catalog
+├── managed/                  Config/Secret/Audit storage ports
 ├── sidecar/protocol/        versioned IPC messages and compatibility
 ├── sidecar/server/          lifecycle, session auth and stream bridge
 ├── codec/                   protocol DTO and semantic conversion
@@ -133,4 +136,8 @@ llmkit 对每个失败返回标准化 `ProviderError`。宿主根据错误种类
 
 ## 非 Go 宿主
 
-非 Go 应用不得重新实现 Provider adapter。它们可以随应用分发同版本的 `llmkit-sidecar`，通过本地 IPC 调用 llmkit。sidecar 只是 Provider 能力 API 的进程边界映射，不新增路由、故障转移、凭据存储或业务策略。详细要求见 [llmkit-sidecar 需求](./sidecar-requirements.md)。
+非 Go 应用不得重新实现 Provider adapter。它们可以随应用分发同版本的
+`llmkitd`，通过本地 IPC 调用 llmkit。sidecar 模式仍只是能力映射；
+local-service/gateway 增加经过身份隔离的目录解析与传输，但不拥有业务路由、
+故障转移、计费或授权政策。详细要求见
+[部署模式](./deployment-modes.md) 与 [sidecar 需求](./sidecar-requirements.md)。

@@ -4,14 +4,15 @@ package server
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 
 	"github.com/uuos-ai/llmkit"
+	"github.com/uuos-ai/llmkit/identity"
 	"github.com/uuos-ai/llmkit/sidecar/protocol"
 )
 
@@ -31,10 +32,12 @@ type BuildInfo struct {
 	SidecarVersion string
 	LLMKitVersion  string
 	BuildID        string
+	InstanceID     string
 }
 
 type Config struct {
 	SessionKey    []byte
+	Authenticator identity.Authenticator
 	MaxFrameBytes uint32
 	Build         BuildInfo
 	Shutdown      func()
@@ -42,6 +45,7 @@ type Config struct {
 
 type Server struct {
 	sessionKey []byte
+	auth       identity.Authenticator
 	maxFrame   uint32
 	build      BuildInfo
 	shutdown   func()
@@ -50,18 +54,38 @@ type Server struct {
 }
 
 func New(config Config) (*Server, error) {
-	if len(config.SessionKey) < 32 {
-		return nil, fmt.Errorf("sidecar server: session key must contain at least 32 bytes")
+	if config.Authenticator != nil && len(config.SessionKey) != 0 {
+		return nil, fmt.Errorf("sidecar server: configure either session key or authenticator")
 	}
-	key := append([]byte(nil), config.SessionKey...)
+	authenticator := config.Authenticator
+	var key []byte
+	if authenticator == nil {
+		if len(config.SessionKey) < 32 {
+			return nil, fmt.Errorf("sidecar server: session key must contain at least 32 bytes")
+		}
+		key = append([]byte(nil), config.SessionKey...)
+		var err error
+		authenticator, err = identity.SingleToken(key, identity.Principal{
+			ClientID: "sidecar-host", Scopes: map[string]struct{}{"shutdown": {}},
+		})
+		if err != nil {
+			clear(key)
+			return nil, err
+		}
+	}
 	return &Server{
-		sessionKey: key, maxFrame: config.MaxFrameBytes,
+		sessionKey: key, auth: authenticator, maxFrame: config.MaxFrameBytes,
 		build: config.Build, shutdown: config.Shutdown,
 		handlers: make(map[protocol.Method]Handler),
 	}, nil
 }
 
-func (s *Server) Close() { clear(s.sessionKey) }
+func (s *Server) Close() {
+	clear(s.sessionKey)
+	if destroyer, ok := s.auth.(interface{ Destroy() }); ok {
+		destroyer.Destroy()
+	}
+}
 
 func (s *Server) Register(method protocol.Method, handler Handler) error {
 	if handler == nil {
@@ -91,11 +115,13 @@ func (s *Server) ServeConn(ctx context.Context, connection io.ReadWriteCloser) e
 	if err != nil {
 		return err
 	}
-	if first.Method != protocol.MethodHandshake || !s.authenticated(first.SessionKey) {
+	principal, authenticated := s.auth.Authenticate(ctx, []byte(first.SessionKey))
+	if first.Method != protocol.MethodHandshake || !authenticated {
 		_ = writer.write(errorResponse(first.RequestID, "authentication", "sidecar handshake rejected"))
 		return errors.New("sidecar server: handshake rejected")
 	}
-	if err := s.handleHandshake(first, writer); err != nil {
+	connectionCtx = identity.WithPrincipal(connectionCtx, principal)
+	if err := s.handleHandshake(first, principal, writer); err != nil {
 		return err
 	}
 
@@ -119,7 +145,8 @@ func (s *Server) ServeConn(ctx context.Context, connection io.ReadWriteCloser) e
 		if readErr != nil {
 			return readErr
 		}
-		if !s.authenticated(request.SessionKey) || request.Version != protocol.Version {
+		requestPrincipal, ok := s.auth.Authenticate(connectionCtx, []byte(request.SessionKey))
+		if !ok || requestPrincipal.Key() != principal.Key() || request.Version != protocol.Version {
 			_ = writer.write(errorResponse(request.RequestID, "authentication", "sidecar request rejected"))
 			continue
 		}
@@ -157,7 +184,7 @@ func (s *Server) ServeConn(ctx context.Context, connection io.ReadWriteCloser) e
 	}
 }
 
-func (s *Server) handleHandshake(request protocol.Request, writer *lockedWriter) error {
+func (s *Server) handleHandshake(request protocol.Request, principal identity.Principal, writer *lockedWriter) error {
 	if request.Version != protocol.Version {
 		_ = writer.write(errorResponse(request.RequestID, "unsupported_version", "protocol version is not supported"))
 		return errors.New("sidecar server: incompatible protocol")
@@ -178,15 +205,20 @@ func (s *Server) handleHandshake(request protocol.Request, writer *lockedWriter)
 		_ = writer.write(errorResponse(request.RequestID, "unsupported_version", "no compatible protocol version"))
 		return errors.New("sidecar server: incompatible protocol")
 	}
+	s.mu.RLock()
+	methods := make([]protocol.Method, 0, len(s.handlers)+4)
+	methods = append(methods, protocol.MethodHandshake, protocol.MethodHealth, protocol.MethodShutdown, protocol.MethodCancel)
+	for method := range s.handlers {
+		methods = append(methods, method)
+	}
+	s.mu.RUnlock()
+	sort.Slice(methods, func(i, j int) bool { return methods[i] < methods[j] })
 	payload := protocol.HandshakeResponse{
 		ProtocolVersion: protocol.Version,
 		SidecarVersion:  s.build.SidecarVersion, LLMKitVersion: s.build.LLMKitVersion,
-		BuildID: s.build.BuildID,
-		Methods: []protocol.Method{
-			protocol.MethodHandshake, protocol.MethodHealth, protocol.MethodShutdown,
-			protocol.MethodCancel, protocol.MethodListCapabilities, protocol.MethodListModels,
-			protocol.MethodValidateCredential, protocol.MethodGenerate, protocol.MethodEmbed,
-		},
+		BuildID: s.build.BuildID, InstanceID: s.build.InstanceID,
+		TenantID: principal.TenantID, ClientID: principal.ClientID,
+		Methods: methods,
 	}
 	return writer.result(request.RequestID, payload)
 }
@@ -196,6 +228,11 @@ func (s *Server) dispatch(ctx context.Context, request protocol.Request, writer 
 	case protocol.MethodHealth:
 		_ = writer.result(request.RequestID, protocol.HealthResponse{Status: "ok"})
 	case protocol.MethodShutdown:
+		principal, _ := identity.FromContext(ctx)
+		if !principal.HasScope("shutdown") {
+			_ = writer.write(errorResponse(request.RequestID, "permission", "shutdown is not permitted"))
+			return
+		}
 		_ = writer.result(request.RequestID, struct{}{})
 		if s.shutdown != nil {
 			s.shutdown()
@@ -267,12 +304,6 @@ func (s *Server) handleCancel(
 		cancel()
 	}
 	_ = writer.result(request.RequestID, struct{}{})
-}
-
-func (s *Server) authenticated(candidate string) bool {
-	want := s.sessionKey
-	got := []byte(candidate)
-	return len(got) == len(want) && subtle.ConstantTimeCompare(got, want) == 1
 }
 
 type lockedWriter struct {

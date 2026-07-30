@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/uuos-ai/llmkit"
+	"github.com/uuos-ai/llmkit/identity"
+	"github.com/uuos-ai/llmkit/routing"
 	"github.com/uuos-ai/llmkit/sidecar/protocol"
 	"github.com/uuos-ai/llmkit/sidecar/server"
 )
@@ -19,13 +21,14 @@ type EndpointPolicy func(llmkit.Target) error
 type Config struct {
 	Registry       *llmkit.Registry
 	EndpointPolicy EndpointPolicy
+	Routes         *routing.SessionCatalog
 }
 
 func Register(target *server.Server, config Config) error {
 	if target == nil || config.Registry == nil {
 		return fmt.Errorf("sidecar binding: server and registry are required")
 	}
-	binding := &binder{registry: config.Registry, endpointPolicy: config.EndpointPolicy}
+	binding := &binder{registry: config.Registry, endpointPolicy: config.EndpointPolicy, routes: config.Routes}
 	for method, handler := range map[protocol.Method]server.Handler{
 		protocol.MethodListCapabilities:   binding.capabilities,
 		protocol.MethodListModels:         binding.listModels,
@@ -37,7 +40,26 @@ func Register(target *server.Server, config Config) error {
 			return err
 		}
 	}
+	if config.Routes != nil {
+		if err := target.Register(protocol.MethodResolveOptions, binding.resolveOptions); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (b *binder) resolveOptions(ctx context.Context, payload json.RawMessage) (any, error) {
+	var request protocol.ResolveProviderOptionsRequest
+	if len(payload) != 0 {
+		if err := decode(payload, &request); err != nil {
+			return nil, err
+		}
+	}
+	principal, ok := identity.FromContext(ctx)
+	if !ok {
+		return nil, &llmkit.ProviderError{Kind: llmkit.ErrorAuthentication, SafeMessage: "authenticated client identity is required"}
+	}
+	return b.routes.Refresh(ctx, principal, request)
 }
 
 func (b *binder) listModels(ctx context.Context, payload json.RawMessage) (any, error) {
@@ -46,6 +68,11 @@ func (b *binder) listModels(ctx context.Context, payload json.RawMessage) (any, 
 		return nil, err
 	}
 	defer clear(request.Credential.Value)
+	var err error
+	request.Target, err = b.resolveTarget(ctx, request.TargetID, request.Target)
+	if err != nil {
+		return nil, err
+	}
 	if err := b.validateProviderTarget(request.Target); err != nil {
 		return nil, err
 	}
@@ -70,6 +97,11 @@ func (b *binder) validateCredential(ctx context.Context, payload json.RawMessage
 		return nil, err
 	}
 	defer clear(request.Credential.Value)
+	var err error
+	request.Target, err = b.resolveTarget(ctx, request.TargetID, request.Target)
+	if err != nil {
+		return nil, err
+	}
 	if err := b.validateTarget(request.Target); err != nil {
 		return nil, err
 	}
@@ -93,11 +125,17 @@ func (b *binder) validateCredential(ctx context.Context, payload json.RawMessage
 type binder struct {
 	registry       *llmkit.Registry
 	endpointPolicy EndpointPolicy
+	routes         *routing.SessionCatalog
 }
 
 func (b *binder) capabilities(ctx context.Context, payload json.RawMessage) (any, error) {
 	var request protocol.CapabilitiesRequest
 	if err := decode(payload, &request); err != nil {
+		return nil, err
+	}
+	var err error
+	request.Target, err = b.resolveTarget(ctx, request.TargetID, request.Target)
+	if err != nil {
 		return nil, err
 	}
 	if err := b.validateTarget(request.Target); err != nil {
@@ -116,6 +154,11 @@ func (b *binder) generate(ctx context.Context, payload json.RawMessage) (any, er
 		return nil, err
 	}
 	defer clear(request.Credential.Value)
+	var err error
+	request.Target, err = b.resolveTarget(ctx, request.TargetID, request.Target)
+	if err != nil {
+		return nil, err
+	}
 	if err := b.validateTarget(request.Target); err != nil {
 		return nil, err
 	}
@@ -170,6 +213,11 @@ func (b *binder) embed(ctx context.Context, payload json.RawMessage) (any, error
 		return nil, err
 	}
 	defer clear(request.Credential.Value)
+	var err error
+	request.Target, err = b.resolveTarget(ctx, request.TargetID, request.Target)
+	if err != nil {
+		return nil, err
+	}
 	if err := b.validateTarget(request.Target); err != nil {
 		return nil, err
 	}
@@ -186,6 +234,24 @@ func (b *binder) embed(ctx context.Context, payload json.RawMessage) (any, error
 		OperationID: request.OperationID, Target: request.Target,
 		Credential: credential, Input: request.Input, Dimensions: request.Dimensions,
 	})
+}
+
+func (b *binder) resolveTarget(ctx context.Context, targetID string, raw llmkit.Target) (llmkit.Target, error) {
+	if targetID == "" && raw.Provider != "" {
+		return raw, nil
+	}
+	if b.routes == nil {
+		return llmkit.Target{}, &llmkit.ProviderError{Kind: llmkit.ErrorInvalidRequest, SafeMessage: "target is required"}
+	}
+	principal, ok := identity.FromContext(ctx)
+	if !ok {
+		return llmkit.Target{}, &llmkit.ProviderError{Kind: llmkit.ErrorAuthentication, SafeMessage: "authenticated client identity is required"}
+	}
+	target, _, err := b.routes.Resolve(ctx, principal, targetID)
+	if err != nil {
+		return llmkit.Target{}, &llmkit.ProviderError{Kind: llmkit.ErrorInvalidRequest, SafeMessage: err.Error()}
+	}
+	return target, nil
 }
 
 func (b *binder) validateTarget(target llmkit.Target) error {

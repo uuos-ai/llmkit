@@ -43,5 +43,6 @@ host applications receive stable semantics and retain policy control. New
 Provider features must be represented in typed common APIs, explicit
 provider-qualified options, or an observable unsupported/adaptation result.
 
-The optional sidecar remains a local transport for these same APIs and cannot
-evolve into a hosted gateway.
+The core Provider layer remains unchanged by deployment transports. The later
+[ADR 0002](./0002-llmkitd-deployment-modes.md) adds optional local-service and
+gateway transports while preserving host ownership of business policy.

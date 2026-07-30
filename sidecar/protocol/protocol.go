@@ -24,6 +24,7 @@ const (
 	MethodListCapabilities   Method = "list_capabilities"
 	MethodListModels         Method = "list_models"
 	MethodValidateCredential Method = "validate_credential"
+	MethodResolveOptions     Method = "resolve_provider_options"
 	MethodGenerate           Method = "generate"
 	MethodEmbed              Method = "embed"
 )
@@ -73,6 +74,9 @@ type HandshakeResponse struct {
 	SidecarVersion  string   `json:"sidecar_version"`
 	LLMKitVersion   string   `json:"llmkit_version"`
 	BuildID         string   `json:"build_id"`
+	InstanceID      string   `json:"instance_id"`
+	TenantID        string   `json:"tenant_id,omitempty"`
+	ClientID        string   `json:"client_id"`
 	Methods         []Method `json:"methods"`
 }
 

@@ -2,6 +2,7 @@ package llmkit
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -32,6 +33,19 @@ func (r *Registry) Get(id ProviderID) (Provider, bool) {
 	defer r.mu.RUnlock()
 	provider, ok := r.providers[id]
 	return provider, ok
+}
+
+// ProviderIDs returns a stable snapshot suitable for discovery APIs. The
+// returned slice is sorted and cannot mutate the registry.
+func (r *Registry) ProviderIDs() []ProviderID {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := make([]ProviderID, 0, len(r.providers))
+	for id := range r.providers {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
 }
 
 func (r *Registry) Generator(id ProviderID) (Generator, bool) {

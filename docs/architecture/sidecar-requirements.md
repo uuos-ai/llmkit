@@ -1,5 +1,9 @@
 # llmkit-sidecar 需求
 
+> 本文只约束 `llmkitd --mode sidecar` 和兼容命令
+> `llmkit-sidecar`。本地常驻服务与远程 gateway 的新增边界见
+> [llmkitd 部署模式](./deployment-modes.md)。
+
 ## 文档信息
 
 - 状态：需求基线
