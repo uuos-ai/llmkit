@@ -26,6 +26,7 @@ type Config struct {
 	ConfigStore     managed.ConfigStore
 	SecretStore     managed.SecretStore
 	AuditStore      managed.AuditStore
+	BlobStore       managed.BlobStore
 	CustomProviders managed.CustomProviderStore
 	EndpointPolicy  func(llmkit.Target) error
 	MaxBodyBytes    int64
@@ -55,6 +56,8 @@ func New(config Config) (*Server, error) {
 	data.Handle("POST /v1/embed", server.authenticate(http.HandlerFunc(server.embed)))
 	data.Handle("POST /v1/rerank", server.authenticate(http.HandlerFunc(server.rerank)))
 	data.Handle("POST /v1/moderate", server.authenticate(http.HandlerFunc(server.moderate)))
+	data.Handle("POST /v1/blobs", server.authenticate(http.HandlerFunc(server.putBlob)))
+	data.Handle("DELETE /v1/blobs/{blob_ref}", server.authenticate(http.HandlerFunc(server.deleteBlob)))
 	control := http.NewServeMux()
 	control.Handle("PUT /v1/custom-providers", server.authenticate(http.HandlerFunc(server.upsertCustomProvider)))
 	control.Handle("DELETE /v1/custom-providers/{provider_id}", server.authenticate(http.HandlerFunc(server.deleteCustomProvider)))
@@ -73,6 +76,40 @@ func (s *Server) ControlHandler() http.Handler { return s.controlHandler }
 
 func (s *Server) health(writer http.ResponseWriter, _ *http.Request) {
 	writeJSON(writer, http.StatusOK, map[string]string{"status": "ok", "instance_id": s.config.InstanceID})
+}
+
+func (s *Server) putBlob(writer http.ResponseWriter, request *http.Request) {
+	if !requireScope(writer, request, identity.ScopeBlobsWrite) {
+		return
+	}
+	if s.config.BlobStore == nil {
+		writeAPIError(writer, http.StatusNotImplemented, "unsupported", "blob storage is unavailable")
+		return
+	}
+	request.Body = http.MaxBytesReader(writer, request.Body, s.config.MaxBodyBytes)
+	principal, _ := identity.FromContext(request.Context())
+	metadata, err := s.config.BlobStore.Put(request.Context(), principal, managed.BlobMetadata{MediaType: request.Header.Get("Content-Type"), Checksum: request.Header.Get("X-Content-SHA256")}, request.Body)
+	if err != nil {
+		writeAPIError(writer, http.StatusBadRequest, "invalid_request", "blob upload failed")
+		return
+	}
+	writeJSON(writer, http.StatusCreated, metadata)
+}
+
+func (s *Server) deleteBlob(writer http.ResponseWriter, request *http.Request) {
+	if !requireScope(writer, request, identity.ScopeBlobsWrite) {
+		return
+	}
+	if s.config.BlobStore == nil {
+		writeAPIError(writer, http.StatusNotImplemented, "unsupported", "blob storage is unavailable")
+		return
+	}
+	principal, _ := identity.FromContext(request.Context())
+	if err := s.config.BlobStore.Delete(request.Context(), principal, request.PathValue("blob_ref")); err != nil {
+		writeAPIError(writer, http.StatusNotFound, "blob_not_found", "blob is unavailable")
+		return
+	}
+	writer.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) authenticate(next http.Handler) http.Handler {

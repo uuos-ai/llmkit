@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/uuos-ai/llmkit"
+	"github.com/uuos-ai/llmkit/blobstore"
 	"github.com/uuos-ai/llmkit/identity"
 	"github.com/uuos-ai/llmkit/managed"
 	"github.com/uuos-ai/llmkit/routing"
@@ -100,5 +101,29 @@ func TestGatewayRejectsMissingToken(t *testing.T) {
 	service.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/provider-options", nil))
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d", response.Code)
+	}
+}
+
+func TestGatewayBlobUploadUsesBoundPrincipal(t *testing.T) {
+	token := []byte("abcdef0123456789abcdef0123456789")
+	auth, _ := identity.SingleToken(token, identity.Principal{ClientID: "client", UserID: "user", BindingVersion: 3, Scopes: map[string]struct{}{identity.ScopeBlobsWrite: {}}})
+	registry := llmkit.NewRegistry()
+	stores := &testStores{}
+	blobs, _ := blobstore.NewMemory(blobstore.Config{})
+	service, err := New(Config{Registry: registry, Authenticator: auth, ConfigStore: stores, SecretStore: stores, AuditStore: stores, BlobStore: blobs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/blobs", bytes.NewBufferString("image"))
+	request.Header.Set("Authorization", "Bearer "+string(token))
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+	service.DataHandler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var metadata managed.BlobMetadata
+	if err := json.Unmarshal(response.Body.Bytes(), &metadata); err != nil || metadata.Ref == "" || metadata.SizeBytes != 5 {
+		t.Fatalf("metadata=%#v err=%v", metadata, err)
 	}
 }
